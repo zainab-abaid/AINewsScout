@@ -221,14 +221,17 @@ DATA.items.forEach(item => { ITEM_MAP[item.id] = item; });
 const dateFrom = document.getElementById('date-from');
 const dateTo = document.getElementById('date-to');
 
-// Build category checkboxes (multi-select).
+// Build category checkboxes (multi-select), with an Uncategorised option.
 const catChecksEl = document.getElementById('cat-checks');
-DATA.categories.forEach(c => {
+const UNCATEGORISED = '__uncategorised__';
+[...DATA.categories, null].forEach(c => {
   const lbl = document.createElement('label');
   const cb = document.createElement('input');
-  cb.type = 'checkbox'; cb.value = c; cb.addEventListener('change', render);
+  cb.type = 'checkbox';
+  cb.value = c === null ? UNCATEGORISED : c;
+  cb.addEventListener('change', render);
   lbl.appendChild(cb);
-  lbl.appendChild(document.createTextNode(' ' + c));
+  lbl.appendChild(document.createTextNode(' ' + (c === null ? 'Uncategorised' : c)));
   catChecksEl.appendChild(lbl);
 });
 
@@ -256,7 +259,12 @@ function render() {
   let items = DATA.items.filter(item => {
     if (currentTab === 'important' && !item.important) return false;
     if (currentTab === 'shortlisted' && !item.shortlisted) return false;
-    if (cats.length && !cats.includes(item.category)) return false;
+    if (cats.length) {
+      const itemCat = item.category || '';
+      const wantsUncategorised = cats.includes(UNCATEGORISED) && !itemCat;
+      const wantsCat = itemCat && cats.includes(itemCat);
+      if (!wantsUncategorised && !wantsCat) return false;
+    }
     if (from && item.date_iso && item.date_iso < from) return false;
     if (to && item.date_iso && item.date_iso > to) return false;
     return true;
