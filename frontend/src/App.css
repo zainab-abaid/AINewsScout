@@ -44,6 +44,17 @@ body {
 }
 .nav button.on { color: var(--ink); font-weight: 650; background: var(--card); border: 1px solid var(--border); }
 
+.publish-control { display: flex; align-items: center; gap: .5rem; }
+.publish-btn {
+  font: inherit; font-size: .82rem; cursor: pointer;
+  padding: .3rem .75rem; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card); color: var(--ink);
+}
+.publish-btn:disabled { opacity: .5; cursor: not-allowed; }
+.publish-link { font-size: .82rem; color: var(--important); text-decoration: underline;
+  text-underline-offset: 3px; }
+.publish-err { font-size: .82rem; color: var(--danger); }
+
 .gmail-chip {
   font-size: .82rem; border: 1px solid var(--border); background: var(--card);
   border-radius: 999px; padding: .28rem .7rem; color: var(--muted);

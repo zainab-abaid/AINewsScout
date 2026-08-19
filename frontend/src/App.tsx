@@ -7,9 +7,11 @@ import {
   type IdeaSearch,
   type IdeaSearchDetail,
   type Job,
+  type PublishStatus,
   type SearchHit,
   type SearchPreview,
   type SettingsStatus,
+  type Stats,
   type SyncPreview,
 } from "./api";
 import { MarkdownBody, MarkdownInline } from "./markdown";
@@ -412,6 +414,7 @@ function CheckMenu({
 }
 
 export default function App() {
+  const [, setStats] = useState<Stats | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
@@ -435,6 +438,11 @@ export default function App() {
   const [syncTo, setSyncTo] = useState(todayIso());
   const [now, setNow] = useState(Date.now());
   const [syncConfirm, setSyncConfirm] = useState<SyncPreview | null>(null);
+  const [publishStatus, setPublishStatus] = useState<PublishStatus>({
+    status: "idle",
+    url: "",
+    error: "",
+  });
   const lastProgressLoad = useRef("");
 
   const load = useCallback(async () => {
@@ -443,6 +451,7 @@ export default function App() {
       api.categories(),
       api.candidates({ status: "all" }),
     ]);
+    setStats(s);
     setCategories(cats);
     setCandidates(cands);
     setSyncFrom((prev) => prev || (s.date_to ? addDay(s.date_to) : todayIso()));
@@ -575,11 +584,33 @@ export default function App() {
     return () => clearInterval(t);
   }, [jobBusy, job?.id, load]);
 
+  // Poll publish status while a publish is running.
+  useEffect(() => {
+    if (publishStatus.status !== "running") return;
+    const t = setInterval(() => {
+      api
+        .publishStatus()
+        .then(setPublishStatus)
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(t);
+  }, [publishStatus.status]);
+
+  async function startPublish() {
+    try {
+      const s = await api.publish();
+      setPublishStatus(s);
+    } catch (e) {
+      setPublishStatus({ status: "error", url: "", error: (e as Error).message });
+    }
+  }
+
   /** Returns false if the change did not stick, so callers do not act on it. */
   async function patch(id: number, body: Record<string, unknown>): Promise<boolean> {
     try {
       const updated = await api.patchCandidate(id, body);
       setCandidates((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      setStats(await api.stats());
       setError("");
       return true;
     } catch (e) {
@@ -634,6 +665,7 @@ export default function App() {
           <h1>AI News Newsletter Explorer</h1>
         </div>
         <div className="header-right">
+          <PublishControl status={publishStatus} onPublish={startPublish} />
           <GmailControl settings={settings} onChange={setSettings} setError={setError} />
         </div>
       </header>
@@ -677,6 +709,7 @@ export default function App() {
               }
               return [cand, ...prev];
             });
+            api.stats().then(setStats).catch(() => undefined);
           }}
         />
       ) : view === "marked" ? (
@@ -2098,6 +2131,37 @@ function KeepHitPrompt({
         </div>
       </form>
     </>
+  );
+}
+
+function PublishControl({
+  status,
+  onPublish,
+}: {
+  status: PublishStatus;
+  onPublish: () => void;
+}) {
+  const busy = status.status === "running";
+  return (
+    <div className="publish-control">
+      <button
+        type="button"
+        className="publish-btn"
+        disabled={busy}
+        onClick={onPublish}
+        title={status.error || undefined}
+      >
+        {busy ? "Publishing…" : "Publish snapshot"}
+      </button>
+      {status.status === "done" && status.url && (
+        <a className="publish-link" href={status.url} target="_blank" rel="noreferrer">
+          View public page
+        </a>
+      )}
+      {status.status === "error" && (
+        <span className="publish-err" title={status.error}>Publish failed</span>
+      )}
+    </div>
   );
 }
 
