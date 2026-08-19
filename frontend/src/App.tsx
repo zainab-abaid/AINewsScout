@@ -10,7 +10,6 @@ import {
   type SearchHit,
   type SearchPreview,
   type SettingsStatus,
-  type Stats,
   type SyncPreview,
 } from "./api";
 import { MarkdownBody, MarkdownInline } from "./markdown";
@@ -413,7 +412,6 @@ function CheckMenu({
 }
 
 export default function App() {
-  const [stats, setStats] = useState<Stats | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
@@ -445,7 +443,6 @@ export default function App() {
       api.categories(),
       api.candidates({ status: "all" }),
     ]);
-    setStats(s);
     setCategories(cats);
     setCandidates(cands);
     setSyncFrom((prev) => prev || (s.date_to ? addDay(s.date_to) : todayIso()));
@@ -583,7 +580,6 @@ export default function App() {
     try {
       const updated = await api.patchCandidate(id, body);
       setCandidates((prev) => prev.map((c) => (c.id === id ? updated : c)));
-      setStats(await api.stats());
       setError("");
       return true;
     } catch (e) {
@@ -625,8 +621,6 @@ export default function App() {
   const mainCards = hideProcessedInMain ? visible.filter((c) => !c.processed) : visible;
   const processedCards = hideProcessedInMain ? visible.filter((c) => c.processed) : [];
 
-  const range =
-    stats?.date_from && stats?.date_to ? `${stats.date_from} – ${stats.date_to}` : "Local corpus";
   const showJob = job && job.id !== dismissedJobId;
   const markedCount = useMemo(() => candidates.filter(isMarked).length, [candidates]);
   const commentCandidate = commentFor
@@ -637,11 +631,7 @@ export default function App() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <h1>Probe scout</h1>
-          <p className="header-meta">
-            {range}
-            {stats ? ` · ${stats.unprocessed} unprocessed` : ""}
-          </p>
+          <h1>AI News Newsletter Explorer</h1>
         </div>
         <div className="header-right">
           <GmailControl settings={settings} onChange={setSettings} setError={setError} />
@@ -687,7 +677,6 @@ export default function App() {
               }
               return [cand, ...prev];
             });
-            api.stats().then(setStats).catch(() => undefined);
           }}
         />
       ) : view === "marked" ? (
