@@ -129,9 +129,12 @@ nav button.on{background:var(--card);color:var(--ink);font-weight:650;border-col
 .card{background:var(--card);border:1px solid var(--border);border-radius:10px;
   padding:1rem 1.1rem;margin-bottom:.75rem}
 .card h2{margin:0 0 .2rem;font-size:1rem;font-weight:650}
-.card .meta{margin:0 0 .5rem;font-size:.82rem;color:var(--muted)}
-.card .meta button{all:unset;cursor:pointer;color:var(--ink);text-decoration:underline;
-  text-underline-offset:3px;font-size:.82rem}
+.meta-lines{margin:0 0 .55rem}
+.news-title-btn{all:unset;cursor:pointer;color:var(--ink);text-decoration:underline;
+  text-underline-offset:3px;font-weight:650}
+.news-date{font-size:.82rem;color:var(--muted);margin-top:.15rem}
+.item-category{font-size:.88rem;margin-top:.15rem}
+.item-category-label{font-weight:700;color:var(--muted);margin-right:.35rem}
 .card .md-block{font-size:.9rem;margin:.5rem 0 0;border-left:3px solid var(--border);
   padding-left:.75rem}
 .card .md-block p{margin:.2rem 0}
@@ -276,12 +279,18 @@ function render() {
       ? `<span style="color:var(--muted);margin-left:.3rem">· ${esc(item.category)}</span>` : '';
     const notes = item.notes && item.notes.trim()
       ? `<p class="notes">${esc(item.notes)}</p>` : '';
+    const categoryDisplay = item.category ? esc(item.category) : '(none)';
     return `<div class="card">
       <h2>${esc(item.topic)}</h2>
-      <p class="meta">
-        <button data-item-id="${item.id}">${esc(item.email_title)}</button>
-        · ${esc(item.email_date)}${catLabel}
-      </p>
+      <div class="meta-lines">
+        <div class="news-title">
+          <button class="news-title-btn" data-item-id="${item.id}">${esc(item.email_title)}</button>
+        </div>
+        <div class="news-date">${esc(item.email_date)}</div>
+        <div class="item-category">
+          <span class="item-category-label">Category:</span> ${categoryDisplay}
+        </div>
+      </div>
       ${badges}
       <div class="md-block">${mdInline(item.main_idea)}</div>
       <div class="md-block">${mdInline(item.excerpt)}</div>
