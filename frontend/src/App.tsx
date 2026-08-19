@@ -14,13 +14,16 @@ import {
   UNCATEGORISED,
   allCategoriesOn,
   filterCandidates,
+  filterMarkedCandidates,
   filtersAreDefault,
   hideAllCategories,
   isCategoryOn,
+  isMarked,
   onCategoryCount,
   showAllCategories,
   toggleCategoryVisibility,
   type MarkFilter,
+  type MarkView,
   type TagFilter,
 } from "./filters";
 
@@ -75,6 +78,16 @@ function elapsed(fromIso: string, now: number) {
     return `${h}h ${m % 60}m ${r}s`;
   }
   return m ? `${m}m ${r}s` : `${r}s`;
+}
+
+function formatMarkedDate(iso: string) {
+  const ms = parseApiTime(iso);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function truncate(text: string, n = 80) {
@@ -143,6 +156,184 @@ function NewCategoryForm({
   );
 }
 
+function CommentBox({
+  value,
+  onSave,
+  onCancel,
+}: {
+  value: string;
+  onSave: (text: string) => Promise<unknown>;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(value);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onSave(text.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="comment-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <textarea
+        autoFocus
+        rows={2}
+        value={text}
+        disabled={busy}
+        placeholder="Why is this worth a probe? (optional)"
+        aria-label="Your comment"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+        }}
+      />
+      <div className="comment-form-actions">
+        <button type="submit" disabled={busy}>
+          Save comment
+        </button>
+        <button type="button" className="btn-quiet" onClick={onCancel} disabled={busy}>
+          {value ? "Cancel" : "Skip"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Category dropdown that can also create a category on the spot. */
+function CategoryPicker({
+  c,
+  categories,
+  onPatch,
+  onAddCategory,
+}: {
+  c: Candidate;
+  categories: Category[];
+  onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
+  onAddCategory: (name: string) => Promise<Category>;
+}) {
+  const [adding, setAdding] = useState(false);
+
+  if (adding) {
+    return (
+      <NewCategoryForm
+        onSave={async (name) => {
+          try {
+            const cat = await onAddCategory(name);
+            await onPatch(c.id, { category_id: cat.id });
+            setAdding(false);
+          } catch {
+            // The message is already on screen; keep the form open to retry.
+          }
+        }}
+        onCancel={() => setAdding(false)}
+      />
+    );
+  }
+  return (
+    <select
+      value={c.category_id ?? ""}
+      aria-label="Category"
+      onChange={async (e) => {
+        if (e.target.value === "__new__") {
+          setAdding(true);
+          return;
+        }
+        if (!e.target.value) await onPatch(c.id, { clear_category: true });
+        else await onPatch(c.id, { category_id: Number(e.target.value) });
+      }}
+    >
+      <option value="">Categorise…</option>
+      {categories.map((cat) => (
+        <option key={cat.id} value={cat.id}>
+          {cat.name}
+        </option>
+      ))}
+      <option value="__new__">+ Add new category…</option>
+    </select>
+  );
+}
+
+/** The saved comment, with a way into the editor. */
+function CommentDisplay({ c, onEdit }: { c: Candidate; onEdit: () => void }) {
+  if (c.notes) {
+    return (
+      <div className="comment">
+        <p className="comment-text">{c.notes}</p>
+        <button type="button" className="linkish" onClick={onEdit}>
+          Edit comment
+        </button>
+      </div>
+    );
+  }
+  if (!isMarked(c)) return null;
+  return (
+    <button type="button" className="linkish add-comment" onClick={onEdit}>
+      Add a comment
+    </button>
+  );
+}
+
+/**
+ * Comments are collected in a dialog rather than on the card, because marking an
+ * item can move its card into the collapsed "Processed by you" section straight
+ * away, which would take an inline editor with it.
+ */
+function CommentPrompt({
+  c,
+  categories,
+  onPatch,
+  onAddCategory,
+  onSave,
+  onClose,
+}: {
+  c: Candidate;
+  categories: Category[];
+  onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
+  onAddCategory: (name: string) => Promise<Category>;
+  onSave: (text: string) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="email-backdrop" onClick={onClose} />
+      <div className="comment-modal">
+        <h2>{c.notes ? "Edit your comment" : "Add a comment"}</h2>
+        <p className="meta">{c.topic}</p>
+
+        {/* The category saves on its own, so the reminder still works if the
+            comment is skipped. */}
+        <div className={`prompt-category ${c.category_id ? "" : "missing"}`}>
+          {c.category_id ? (
+            <span className="prompt-category-label">Category</span>
+          ) : (
+            <span className="prompt-category-label">You forgot to add a category</span>
+          )}
+          <CategoryPicker
+            c={c}
+            categories={categories}
+            onPatch={onPatch}
+            onAddCategory={onAddCategory}
+          />
+        </div>
+
+        <CommentBox value={c.notes} onSave={onSave} onCancel={onClose} />
+      </div>
+    </>
+  );
+}
+
 function CheckMenu({
   id,
   label,
@@ -189,6 +380,7 @@ export default function App() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
+  const [view, setView] = useState<"review" | "marked">("review");
   const [unprocessedOnly, setUnprocessedOnly] = useState(true);
   const [tagFilters, setTagFilters] = useState<Set<TagFilter>>(new Set());
   const [markFilters, setMarkFilters] = useState<Set<MarkFilter>>(new Set());
@@ -200,6 +392,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [dismissedJobId, setDismissedJobId] = useState<number | null>(null);
+  const [commentFor, setCommentFor] = useState<number | null>(null);
   const [email, setEmail] = useState<EmailDetail | null>(null);
   const [emailExcerpt, setEmailExcerpt] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
@@ -348,11 +541,18 @@ export default function App() {
     return () => clearInterval(t);
   }, [jobBusy, job?.id, load]);
 
-  async function patch(id: number, body: Record<string, unknown>) {
-    const updated = await api.patchCandidate(id, body);
-    setCandidates((prev) => prev.map((c) => (c.id === id ? updated : c)));
-    const s = await api.stats();
-    setStats(s);
+  /** Returns false if the change did not stick, so callers do not act on it. */
+  async function patch(id: number, body: Record<string, unknown>): Promise<boolean> {
+    try {
+      const updated = await api.patchCandidate(id, body);
+      setCandidates((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      setStats(await api.stats());
+      setError("");
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
   }
 
   async function addCategory(name: string) {
@@ -391,6 +591,10 @@ export default function App() {
   const range =
     stats?.date_from && stats?.date_to ? `${stats.date_from} – ${stats.date_to}` : "Local corpus";
   const showJob = job && job.id !== dismissedJobId;
+  const markedCount = useMemo(() => candidates.filter(isMarked).length, [candidates]);
+  const commentCandidate = commentFor
+    ? candidates.find((c) => c.id === commentFor) ?? null
+    : null;
 
   return (
     <div className="app-shell">
@@ -407,7 +611,42 @@ export default function App() {
         </div>
       </header>
 
-      <>
+      <nav className="tabs">
+        <button
+          type="button"
+          className={view === "review" ? "on" : ""}
+          onClick={() => {
+            setOpenMenu(null);
+            setView("review");
+          }}
+        >
+          Review
+        </button>
+        <button
+          type="button"
+          className={view === "marked" ? "on" : ""}
+          onClick={() => {
+            setOpenMenu(null);
+            setView("marked");
+          }}
+        >
+          Marked{markedCount ? ` · ${markedCount}` : ""}
+        </button>
+      </nav>
+
+      {view === "marked" ? (
+        <MarkedView
+          candidates={candidates}
+          categories={categories}
+          error={error}
+          onPatch={patch}
+          onAddCategory={addCategory}
+          onOpenEmail={openEmail}
+          openMenu={openMenu}
+          setOpenMenu={setOpenMenu}
+        />
+      ) : (
+        <>
           <JobPanel
             settings={settings}
             job={showJob ? job : null}
@@ -571,6 +810,7 @@ export default function App() {
                     onPatch={patch}
                     onAddCategory={addCategory}
                     onOpenEmail={openEmail}
+                    onComment={setCommentFor}
                   />
                 ))}
               </div>
@@ -597,11 +837,28 @@ export default function App() {
                   onPatch={patch}
                   onAddCategory={addCategory}
                   onOpenEmail={openEmail}
+                  onComment={setCommentFor}
                 />
-              ))
-            )}
+            ))
+          )}
           </main>
         </>
+      )}
+
+      {commentCandidate && (
+        <CommentPrompt
+          c={commentCandidate}
+          categories={categories}
+          onPatch={patch}
+          onAddCategory={addCategory}
+          onSave={async (text) => {
+            // Keep the editor open on failure so the comment is not lost.
+            if (text === commentCandidate.notes) setCommentFor(null);
+            else if (await patch(commentCandidate.id, { notes: text })) setCommentFor(null);
+          }}
+          onClose={() => setCommentFor(null)}
+        />
+      )}
 
       {syncConfirm && (
         <SyncConfirm
@@ -937,14 +1194,22 @@ function CandidateCard({
   onPatch,
   onAddCategory,
   onOpenEmail,
+  onComment,
 }: {
   c: Candidate;
   categories: Category[];
-  onPatch: (id: number, body: Record<string, unknown>) => Promise<void>;
+  onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
   onAddCategory: (name: string) => Promise<Category>;
   onOpenEmail: (id: number, excerpt: string) => void;
+  onComment: (id: number) => void;
 }) {
-  const [addingCategory, setAddingCategory] = useState(false);
+  // Marking is one click; the comment prompt opens afterwards so it stays optional.
+  async function toggleMark(field: "important" | "shortlisted") {
+    const turningOn = !c[field];
+    const ok = await onPatch(c.id, { [field]: turningOn });
+    if (ok && turningOn) onComment(c.id);
+  }
+
   const cls = [
     "candidate-card",
     c.important ? "is-important" : "",
@@ -963,49 +1228,25 @@ function CandidateCard({
           {c.deleted && <span className="badge deleted-flag">Deleted</span>}
         </div>
         <div className="card-actions">
-          {addingCategory ? (
-            <NewCategoryForm
-              onSave={async (name) => {
-                const cat = await onAddCategory(name);
-                await onPatch(c.id, { category_id: cat.id });
-                setAddingCategory(false);
-              }}
-              onCancel={() => setAddingCategory(false)}
-            />
-          ) : (
-            <select
-              value={c.category_id ?? ""}
-              onChange={async (e) => {
-                if (e.target.value === "__new__") {
-                  setAddingCategory(true);
-                  return;
-                }
-                if (!e.target.value) await onPatch(c.id, { clear_category: true });
-                else await onPatch(c.id, { category_id: Number(e.target.value) });
-              }}
-            >
-              <option value="">Categorise…</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-              <option value="__new__">+ Add new category…</option>
-            </select>
-          )}
+          <CategoryPicker
+            c={c}
+            categories={categories}
+            onPatch={onPatch}
+            onAddCategory={onAddCategory}
+          />
           <button
             type="button"
             className={`btn-important ${c.important ? "is-on" : ""}`}
-            onClick={() => onPatch(c.id, { important: !c.important })}
+            onClick={() => toggleMark("important")}
           >
-            {c.important ? "Remove user-important mark" : "Mark important (user)"}
+            {c.important ? "Unmark Important" : "Mark Important"}
           </button>
           <button
             type="button"
             className={`btn-shortlist ${c.shortlisted ? "is-on" : ""}`}
-            onClick={() => onPatch(c.id, { shortlisted: !c.shortlisted })}
+            onClick={() => toggleMark("shortlisted")}
           >
-            {c.shortlisted ? "Remove user shortlist" : "Shortlist (user)"}
+            {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
           </button>
           <button type="button" className="btn-delete" onClick={() => onPatch(c.id, { deleted: !c.deleted })}>
             {c.deleted ? "Undelete" : "Delete"}
@@ -1023,7 +1264,224 @@ function CandidateCard({
       <blockquote className="excerpt">
         <MarkdownInline text={c.excerpt} />
       </blockquote>
+      <CommentDisplay c={c} onEdit={() => onComment(c.id)} />
     </article>
+  );
+}
+
+function MarkedRow({
+  c,
+  categories,
+  onPatch,
+  onAddCategory,
+  onOpenEmail,
+}: {
+  c: Candidate;
+  categories: Category[];
+  onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
+  onAddCategory: (name: string) => Promise<Category>;
+  onOpenEmail: (id: number, excerpt: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const added = formatMarkedDate(c.marked_at);
+  return (
+    <article className="marked-row">
+      <div className="card-top">
+        <div>
+          {c.important && <span className="badge important-flag">Important</span>}
+          {c.shortlisted && <span className="badge shortlist-flag">Shortlisted</span>}
+          {c.deleted && <span className="badge deleted-flag">Deleted</span>}
+          <span className="badge cat-flag">{c.category_name || "Uncategorised"}</span>
+        </div>
+        <span className="marked-date">{added ? `Added ${added}` : "Date not recorded"}</span>
+      </div>
+      <h2>{c.topic}</h2>
+      <p className="meta">
+        {c.email_date || c.date_iso} ·{" "}
+        <button type="button" className="linkish" onClick={() => onOpenEmail(c.email_id, c.excerpt)}>
+          {c.email_title}
+        </button>
+      </p>
+      <p className="idea">{c.main_idea}</p>
+      {editing ? (
+        <CommentBox
+          value={c.notes}
+          onSave={async (text) => {
+            if (text === c.notes) setEditing(false);
+            else if (await onPatch(c.id, { notes: text })) setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <CommentDisplay c={c} onEdit={() => setEditing(true)} />
+      )}
+      <div className="marked-actions">
+        <CategoryPicker
+          c={c}
+          categories={categories}
+          onPatch={onPatch}
+          onAddCategory={onAddCategory}
+        />
+        <button
+          type="button"
+          className={`btn-important ${c.important ? "is-on" : ""}`}
+          onClick={() => onPatch(c.id, { important: !c.important })}
+        >
+          {c.important ? "Unmark Important" : "Mark Important"}
+        </button>
+        <button
+          type="button"
+          className={`btn-shortlist ${c.shortlisted ? "is-on" : ""}`}
+          onClick={() => onPatch(c.id, { shortlisted: !c.shortlisted })}
+        >
+          {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+const MARK_VIEWS: { id: MarkView; label: string }[] = [
+  { id: "all", label: "All marked" },
+  { id: "important", label: "Important only" },
+  { id: "shortlist", label: "Shortlisted only" },
+];
+
+function MarkedView({
+  candidates,
+  categories,
+  error,
+  onPatch,
+  onAddCategory,
+  onOpenEmail,
+  openMenu,
+  setOpenMenu,
+}: {
+  candidates: Candidate[];
+  categories: Category[];
+  error: string;
+  onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
+  onAddCategory: (name: string) => Promise<Category>;
+  onOpenEmail: (id: number, excerpt: string) => void;
+  openMenu: string | null;
+  setOpenMenu: (id: string | null) => void;
+}) {
+  const [view, setView] = useState<MarkView>("all");
+  const [hiddenCats, setHiddenCats] = useState<Set<string>>(() => showAllCategories());
+  const [search, setSearch] = useState("");
+
+  const rows = useMemo(
+    () => filterMarkedCandidates(candidates, { view, hiddenCats, search }),
+    [candidates, view, hiddenCats, search],
+  );
+  const totalMarked = useMemo(() => candidates.filter(isMarked).length, [candidates]);
+
+  return (
+    <>
+      {error && <p className="err marked-error">{error}</p>}
+      <div className="filter-bar">
+        <div className="segmented">
+          {MARK_VIEWS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className={view === opt.id ? "on" : ""}
+              onClick={() => setView(opt.id)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <CheckMenu
+          id="marked-categories"
+          label="Categories"
+          summary={
+            allCategoriesOn(hiddenCats, categories)
+              ? undefined
+              : String(onCategoryCount(hiddenCats, categories))
+          }
+          openId={openMenu}
+          setOpenId={setOpenMenu}
+        >
+          <label className="menu-check">
+            <input
+              type="checkbox"
+              checked={allCategoriesOn(hiddenCats, categories)}
+              onChange={(e) =>
+                setHiddenCats(e.target.checked ? showAllCategories() : hideAllCategories(categories))
+              }
+            />
+            All categories
+          </label>
+          <label className="menu-check">
+            <input
+              type="checkbox"
+              checked={isCategoryOn(hiddenCats, UNCATEGORISED)}
+              onChange={(e) =>
+                setHiddenCats((prev) =>
+                  toggleCategoryVisibility(prev, UNCATEGORISED, e.target.checked),
+                )
+              }
+            />
+            Uncategorised
+          </label>
+          {categories.map((cat) => (
+            <label key={cat.id} className="menu-check">
+              <input
+                type="checkbox"
+                checked={isCategoryOn(hiddenCats, String(cat.id))}
+                onChange={(e) =>
+                  setHiddenCats((prev) =>
+                    toggleCategoryVisibility(prev, String(cat.id), e.target.checked),
+                  )
+                }
+              />
+              {cat.name}
+            </label>
+          ))}
+          <NewCategoryForm onSave={onAddCategory} />
+        </CheckMenu>
+        <input
+          type="search"
+          placeholder="Search topic, idea, comment, title…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn-quiet"
+          onClick={() => {
+            setView("all");
+            setHiddenCats(showAllCategories());
+            setSearch("");
+          }}
+        >
+          Clear
+        </button>
+        <span className="filter-count">{rows.length} shown</span>
+      </div>
+
+      <main id="marked-list">
+        {rows.length === 0 ? (
+          <div className="empty-queue">
+            {totalMarked === 0
+              ? "Nothing marked yet. Mark an item important or shortlist it in Review and it shows up here."
+              : "No marked items match these filters."}
+          </div>
+        ) : (
+          rows.map((c) => (
+            <MarkedRow
+              key={c.id}
+              c={c}
+              categories={categories}
+              onPatch={onPatch}
+              onAddCategory={onAddCategory}
+              onOpenEmail={onOpenEmail}
+            />
+          ))
+        )}
+      </main>
+    </>
   );
 }
 

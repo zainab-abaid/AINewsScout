@@ -25,8 +25,39 @@ def get_engine():
     return engine
 
 
+def _add_missing_columns() -> None:
+    """`create_all` never alters an existing table, so new nullable columns are
+    added here to keep databases from earlier versions usable."""
+    added = {"candidates": {"marked_at": "DATETIME"}}
+    with get_engine().begin() as conn:
+        for table, columns in added.items():
+            present = {
+                row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")
+            }
+            if not present:
+                continue
+            for name, sql_type in columns.items():
+                if name not in present:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"
+                    )
+
+
+def _backfill_marked_at() -> None:
+    """Items marked before the app recorded a mark date have no timestamp. The
+    extraction date is the closest bound available, since an item cannot be
+    marked before it exists. Idempotent: every later mark sets its own date."""
+    with get_engine().begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE candidates SET marked_at = created_at "
+            "WHERE marked_at IS NULL AND (important = 1 OR shortlisted = 1)"
+        )
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(get_engine())
+    _add_missing_columns()
+    _backfill_marked_at()
     with session_scope() as session:
         existing = {c.name for c in session.exec(select(Category)).all()}
         for i, name in enumerate(DEFAULT_CATEGORIES):

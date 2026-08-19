@@ -87,26 +87,53 @@ If Connect Gmail is blocked, ask IT to trust this internal OAuth client for Gmai
 
 You can keep reviewing while extraction runs, and reloading the page reattaches to a job that is still going.
 
+The UI has two tabs: **Review** for working through the queue, and **Marked** for everything you kept.
+
 ## Review
 
 - **Filters**: model ranking (high priority / strong / possible) and your own marks. Multi-select.
 - **Categories**: switch categories on or off. Anything you have not switched off stays visible, including categories you add later.
 - **+ Add new category…** on any card, or **New category name** in the Categories menu, saves immediately and is available on every other card without a reload.
 - **Show unprocessed items only** is on by default. Items you marked important, shortlisted, or deleted move into the collapsed **Processed by you** section rather than leaving the page.
+- **Mark Important** and **Shortlist for Probe** take one click, then offer a comment box. The comment is optional: **Skip** leaves it empty, `Cmd/Ctrl+Enter` saves, `Esc` closes.
+- If the item has no category yet, that same dialog says **You forgot to add a category** and offers the dropdown, including **+ Add new category…**. The category saves as soon as it is picked, so it still sticks if you skip the comment.
 - Marks are attributed so they stay distinguishable from the model's ranking: **Marked important by user** and **Shortlisted by user**.
-- Excerpts keep the newsletter's links as short clickable labels. Clicking the email title opens the full newsletter as rendered Markdown and scrolls to the excerpt.
+- Excerpts keep the newsletter's links as short clickable labels. Clicking the email title opens the full newsletter as rendered Markdown and scrolls to the passage the excerpt came from, highlighted in yellow. The passage is found by word overlap rather than an exact string, so it still lands correctly when the model wrote its own lead-in or when the excerpt and the body format links differently.
+
+## Marked
+
+Everything you marked important or shortlisted, newest first, with your comments.
+
+- **All marked / Important only / Shortlisted only**, plus the same **Categories** filter and a search box that also covers your comments.
+- Comments are editable in place, each item shows the date you marked it, and the category can be changed or filled in from here too.
+- Unmarking an item removes it from this tab but keeps the comment, so it is still there if you mark the item again.
+- Items marked before this tab existed had no mark date, so they fall back to the date the item was extracted.
+
+## Re-importing email bodies
+
+Emails are stored as Markdown converted from the HTML part of the message, which is what gives the reader its headings, lists and links. Sync skips messages already in the database, so an email keeps whichever conversion was in place when it arrived: after the converter improves, older emails stay as they were. That is worth knowing because a body with no blank lines renders as one unbroken wall of text, and the jump-to-excerpt cannot find a paragraph to land on.
+
+To bring stored emails up to the current conversion:
+
+```bash
+uv run python -m backend.tools.reimport_bodies --dry-run  # report what would change
+uv run python -m backend.tools.reimport_bodies            # apply
+```
+
+It re-downloads each stored message and rewrites `body_md` only. Candidates, categories, marks and comments are untouched, and a message that fails to download keeps its existing body. Back up `data/probe_scout.sqlite` first if you want a way back.
 
 ## Tests
 
 ```bash
-uv run pytest          # backend: link handling, categories, settings
-cd frontend && npm test # UI filter logic
+uv run pytest          # backend: link handling, categories, marks and comments, re-import, settings
+cd frontend && npm test # UI filter logic, block parsing and excerpt matching
 ```
 
 ## Layout
 
 ```
 backend/    FastAPI app, Gmail sync, extraction jobs, SQLite models
+backend/tools/  maintenance commands (email body re-import)
 frontend/   Vite + React review UI
 skills/     extraction prompts (01 research context, 02 single-email extractor)
 tests/      backend tests

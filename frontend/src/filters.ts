@@ -78,6 +78,41 @@ export function filterCandidates(candidates: Candidate[], state: FilterState): C
   });
 }
 
+/** Which marks the Marked tab is showing. */
+export type MarkView = "all" | "important" | "shortlist";
+
+export function isMarked(c: Candidate): boolean {
+  return c.important || c.shortlisted;
+}
+
+/**
+ * Items the user marked, newest mark first. Items marked before the app started
+ * recording a timestamp have no date, so they sort last by id.
+ */
+export function filterMarkedCandidates(
+  candidates: Candidate[],
+  opts: { view: MarkView; hiddenCats: Set<string>; search?: string },
+): Candidate[] {
+  const q = (opts.search || "").trim().toLowerCase();
+  const rows = candidates.filter((c) => {
+    if (!isMarked(c)) return false;
+    if (opts.view === "important" && !c.important) return false;
+    if (opts.view === "shortlist" && !c.shortlisted) return false;
+    if (!isCategoryOn(opts.hiddenCats, categoryKey(c.category_id))) return false;
+    if (q) {
+      const blob = `${c.topic} ${c.main_idea} ${c.notes} ${c.email_title}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+  return rows.sort((a, b) => {
+    if (a.marked_at && b.marked_at) return a.marked_at < b.marked_at ? 1 : -1;
+    if (a.marked_at) return -1;
+    if (b.marked_at) return 1;
+    return b.id - a.id;
+  });
+}
+
 export function filtersAreDefault(state: FilterState, categories: Category[]): boolean {
   return (
     state.tagFilters.size === 0 &&

@@ -5,6 +5,7 @@ import {
   UNCATEGORISED,
   allCategoriesOn,
   filterCandidates,
+  filterMarkedCandidates,
   filtersAreDefault,
   hideAllCategories,
   isCategoryOn,
@@ -34,6 +35,7 @@ function candidate(id: number, categoryId: number | null): Candidate {
     category_id: categoryId,
     category_name: "",
     notes: "",
+    marked_at: "",
     email_title: "AINews",
     email_date: "2026-08-18",
     date_iso: "2026-08-18",
@@ -136,5 +138,73 @@ describe("other filters", () => {
     expect(
       filtersAreDefault(state({ hiddenCats: hideAllCategories(categories) }), categories),
     ).toBe(false);
+  });
+});
+
+describe("marked tab", () => {
+  function marked(): Candidate[] {
+    const a = candidate(1, 1);
+    a.important = true;
+    a.marked_at = "2026-08-17T09:00:00+00:00";
+    a.notes = "ask about routing";
+
+    const b = candidate(2, 2);
+    b.shortlisted = true;
+    b.marked_at = "2026-08-19T09:00:00+00:00";
+
+    const c = candidate(3, 1);
+    c.important = true;
+    c.shortlisted = true;
+    c.marked_at = "2026-08-18T09:00:00+00:00";
+
+    return [a, b, c, candidate(4, 1)];
+  }
+
+  it("keeps only marked items, newest mark first", () => {
+    const rows = filterMarkedCandidates(marked(), {
+      view: "all",
+      hiddenCats: showAllCategories(),
+    });
+    expect(rows.map((c) => c.id)).toEqual([2, 3, 1]);
+  });
+
+  it("separates important from shortlisted", () => {
+    const items = marked();
+    const important = filterMarkedCandidates(items, {
+      view: "important",
+      hiddenCats: showAllCategories(),
+    });
+    const shortlist = filterMarkedCandidates(items, {
+      view: "shortlist",
+      hiddenCats: showAllCategories(),
+    });
+    expect(important.map((c) => c.id)).toEqual([3, 1]);
+    expect(shortlist.map((c) => c.id)).toEqual([2, 3]);
+  });
+
+  it("filters by category and searches comments", () => {
+    const items = marked();
+    const hidden = toggleCategoryVisibility(showAllCategories(), "1", false);
+    expect(
+      filterMarkedCandidates(items, { view: "all", hiddenCats: hidden }).map((c) => c.id),
+    ).toEqual([2]);
+    expect(
+      filterMarkedCandidates(items, {
+        view: "all",
+        hiddenCats: showAllCategories(),
+        search: "routing",
+      }).map((c) => c.id),
+    ).toEqual([1]);
+  });
+
+  it("sorts items marked before dates were recorded last", () => {
+    const items = marked();
+    const legacy = candidate(9, 1);
+    legacy.important = true;
+    const rows = filterMarkedCandidates([legacy, ...items], {
+      view: "all",
+      hiddenCats: showAllCategories(),
+    });
+    expect(rows.map((c) => c.id)).toEqual([2, 3, 1, 9]);
   });
 });

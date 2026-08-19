@@ -53,6 +53,8 @@ class Candidate(SQLModel, table=True):
     category_id: Optional[int] = Field(default=None, foreign_key="categories.id")
     notes: str = ""
     created_at: datetime = Field(default_factory=utcnow)
+    # When the item first became important or shortlisted; cleared if both are removed.
+    marked_at: Optional[datetime] = None
 
 
 class Job(SQLModel, table=True):

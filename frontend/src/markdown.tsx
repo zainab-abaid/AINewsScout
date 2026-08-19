@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
+import { findHitIndex, parseBlocks, type Block } from "./excerpt";
+
 function hostLabel(href: string): string {
   try {
     return new URL(href).hostname.replace(/^www\./, "") || "link";
@@ -89,62 +91,6 @@ function renderInline(text: string, key: string): ReactNode[] {
 
 export function MarkdownInline({ text }: { text: string }) {
   return <>{renderInline(text, "in")}</>;
-}
-
-type Block =
-  | { kind: "h"; level: number; text: string; raw: string }
-  | { kind: "hr"; raw: string }
-  | { kind: "ul"; items: string[]; raw: string }
-  | { kind: "p"; text: string; raw: string };
-
-function parseBlocks(md: string): Block[] {
-  const chunks = md
-    .replace(/\r\n/g, "\n")
-    .split(/\n{2,}/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return chunks.map((chunk) => {
-    const hm = /^(#{1,3})\s+(.+)$/.exec(chunk);
-    if (hm && !chunk.includes("\n")) {
-      return { kind: "h", level: hm[1].length, text: hm[2], raw: chunk };
-    }
-    if (/^---+$/.test(chunk)) return { kind: "hr", raw: chunk };
-    const lines = chunk.split("\n");
-    if (lines.length && lines.every((l) => /^\s*[-*]\s+/.test(l) || l.trim() === "")) {
-      return {
-        kind: "ul",
-        items: lines.filter((l) => l.trim()).map((l) => l.replace(/^\s*[-*]\s+/, "")),
-        raw: chunk,
-      };
-    }
-    return { kind: "p", text: chunk.replace(/\n/g, " "), raw: chunk };
-  });
-}
-
-function plainish(s: string): string {
-  return s
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1")
-    .replace(/https?:\/\/\S+/g, " ")
-    .replace(/[#*_`>-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function findHitIndex(blocks: Block[], excerpt: string): number {
-  const needle = plainish(excerpt);
-  if (needle.length < 24) return -1;
-  const start = needle.slice(0, Math.min(96, needle.length));
-  for (let i = 0; i < blocks.length; i++) {
-    const hay = plainish(blocks[i].raw);
-    if (hay.includes(start)) return i;
-  }
-  const words = start.split(" ").slice(0, 12).join(" ");
-  if (words.length < 20) return -1;
-  for (let i = 0; i < blocks.length; i++) {
-    if (plainish(blocks[i].raw).includes(words)) return i;
-  }
-  return -1;
 }
 
 function BlockView({ block, hit }: { block: Block; hit: boolean }) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, timedelta
 from typing import Any, Callable, Optional
 
@@ -27,8 +28,7 @@ from backend.secrets_store import (
     save_gmail_token,
 )
 from backend.services.mailparse import (
-    format_email_markdown,
-    gmail_payload_text,
+    gmail_message_markdown,
     headers_map,
     parse_date,
 )
@@ -180,12 +180,12 @@ def warmup_gmail_email() -> None:
     if get_cached_email():
         return
     try:
-        _service()
+        gmail_service()
     except Exception:
         pass
 
 
-def _service():
+def gmail_service():
     creds = credentials_from_store()
     if not creds or not creds.valid:
         raise RuntimeError("Gmail is not connected")
@@ -210,7 +210,7 @@ def gmail_query(date_from: Optional[date], date_to: Optional[date], label: str) 
 
 
 def list_message_ids(q: str) -> list[str]:
-    service = _service()
+    service = gmail_service()
     ids: list[str] = []
     page = None
     while True:
@@ -227,6 +227,70 @@ def list_message_ids(q: str) -> list[str]:
         if not page:
             break
     return ids
+
+
+def reimport_bodies(
+    dry_run: bool = False,
+    report: Optional[Callable[[str], None]] = None,
+) -> dict[str, int]:
+    """Rebuild `body_md` for stored emails with the current converter.
+
+    Sync skips messages it already has, so bodies keep whatever the converter of
+    the day produced. Emails stored before HTML was converted to Markdown are
+    one long run of text with no headings or lists. Only `body_md` is touched:
+    candidates, marks and comments are left alone.
+    """
+    say = report or (lambda _msg: None)
+    label = get_label()
+    with session_scope() as session:
+        rows = [
+            (e.id, e.gmail_id, e.subject, e.body_md)
+            for e in session.exec(select(Email).order_by(Email.id)).all()
+            if e.id and e.gmail_id
+        ]
+    counts = {"checked": 0, "updated": 0, "unchanged": 0, "failed": 0}
+    if not rows:
+        return counts
+
+    service = gmail_service()
+    for eid, gid, subject, old in rows:
+        counts["checked"] += 1
+        try:
+            msg = (
+                service.users()
+                .messages()
+                .get(userId="me", id=gid, format="full")
+                .execute()
+            )
+            md = gmail_message_markdown(msg.get("payload") or {}, label)
+        except Exception as exc:
+            counts["failed"] += 1
+            say(f"email {eid}: failed to fetch ({exc})")
+            continue
+        if not md.strip():
+            counts["failed"] += 1
+            say(f"email {eid}: converter produced nothing, keeping the old body")
+            continue
+        if md == old:
+            counts["unchanged"] += 1
+            continue
+        counts["updated"] += 1
+        say(
+            f"email {eid}: {_shape(old)} -> {_shape(md)}  {(subject or '')[:48]}"
+            + ("  [dry run]" if dry_run else "")
+        )
+        if dry_run:
+            continue
+        with session_scope() as session:
+            row = session.get(Email, eid)
+            if row:
+                row.body_md = md
+    return counts
+
+
+def _shape(md: str) -> str:
+    blocks = [c for c in re.split(r"\n{2,}", md) if c.strip()]
+    return f"{len(blocks)} blocks/{len(md.splitlines())} lines"
 
 
 def fetch_and_store(
@@ -248,7 +312,7 @@ def fetch_and_store(
             for gid in session.exec(select(Email.gmail_id)).all()
             if gid
         }
-    service = _service()
+    service = gmail_service()
     for i, gid in enumerate(ids, start=1):
         if gid in existing:
             counts["skipped"] += 1
@@ -264,13 +328,9 @@ def fetch_and_store(
         headers = headers_map(payload)
         subject = headers.get("subject") or "(no subject)"
         from_addr = headers.get("from") or ""
-        to_addr = headers.get("to") or ""
         date_raw = headers.get("date") or ""
         message_id = (headers.get("message-id") or "").strip()
-        body = gmail_payload_text(payload)
-        md = format_email_markdown(
-            subject, from_addr, date_raw, body, label, message_id, to_addr
-        )
+        md = gmail_message_markdown(payload, label)
         sent_at = parse_date(date_raw)
         with session_scope() as session:
             dup = None

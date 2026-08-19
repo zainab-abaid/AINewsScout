@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, func, select
 
 from backend.database import get_session
-from backend.db import Candidate, Category, Email
+from backend.db import Candidate, Category, Email, utcnow
 from backend.services.links import hydrate_excerpt_links, normalize_inline_links
 from backend.schemas import (
     ALLOWED_TAGS,
@@ -31,6 +31,10 @@ def _iso(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+def _iso_dt(dt: Optional[datetime]) -> str:
+    return dt.isoformat() if dt else ""
+
+
 def _processed(c: Candidate) -> bool:
     return bool(c.important or c.shortlisted or c.deleted)
 
@@ -51,6 +55,7 @@ def to_out(c: Candidate, email: Email, cat: Optional[Category]) -> CandidateOut:
         category_id=c.category_id,
         category_name=cat.name if cat else "",
         notes=c.notes or "",
+        marked_at=_iso_dt(c.marked_at),
         email_title=email.subject,
         email_date=email.date_raw or _iso(email.sent_at),
         date_iso=_iso(email.sent_at),
@@ -125,10 +130,16 @@ def patch_candidate(
     cand = session.get(Candidate, candidate_id)
     if not cand:
         raise HTTPException(404, "Candidate not found")
+    was_marked = cand.important or cand.shortlisted
     if body.important is not None:
         cand.important = body.important
     if body.shortlisted is not None:
         cand.shortlisted = body.shortlisted
+    is_marked = cand.important or cand.shortlisted
+    if is_marked and not was_marked:
+        cand.marked_at = utcnow()
+    elif not is_marked:
+        cand.marked_at = None
     if body.deleted is not None:
         cand.deleted = body.deleted
     if body.clear_category:

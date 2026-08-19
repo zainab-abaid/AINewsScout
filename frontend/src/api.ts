@@ -15,6 +15,7 @@ export type Candidate = {
   category_id: number | null;
   category_name: string;
   notes: string;
+  marked_at: string;
   email_title: string;
   email_date: string;
   date_iso: string;

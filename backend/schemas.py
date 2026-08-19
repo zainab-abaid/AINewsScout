@@ -66,6 +66,7 @@ class CandidateOut(BaseModel):
     category_id: Optional[int] = None
     category_name: str = ""
     notes: str = ""
+    marked_at: str = ""
     email_title: str = ""
     email_date: str = ""
     date_iso: str = ""

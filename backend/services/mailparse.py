@@ -166,3 +166,18 @@ def format_email_markdown(
         lines.append(f"- **Message-ID:** {message_id}")
     lines.extend(["", "---", "", body.strip(), ""])
     return "\n".join(lines)
+
+
+def gmail_message_markdown(payload: dict[str, Any], source: str) -> str:
+    """The stored form of a Gmail message. Sync and re-import share this, so a
+    re-imported body is identical to a freshly fetched one."""
+    headers = headers_map(payload)
+    return format_email_markdown(
+        headers.get("subject") or "(no subject)",
+        headers.get("from") or "",
+        headers.get("date") or "",
+        gmail_payload_text(payload),
+        source,
+        (headers.get("message-id") or "").strip(),
+        headers.get("to") or "",
+    )
