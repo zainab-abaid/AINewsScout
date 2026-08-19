@@ -243,7 +243,6 @@ input[type=date], input[type=text], input[type=password], select {
 .candidate-card {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.15rem;
 }
-.candidate-card.is-deleted { opacity: .72; background: #faf7f7; }
 .candidate-card.is-important { box-shadow: inset 3px 0 0 var(--important); }
 .candidate-card.is-shortlisted { box-shadow: inset 3px 0 0 var(--shortlist); }
 .card-top { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; margin-bottom: .55rem; }
@@ -262,7 +261,6 @@ input[type=date], input[type=text], input[type=password], select {
   color: var(--shortlist); background: var(--shortlist-bg);
   text-transform: none; letter-spacing: 0; font-weight: 600;
 }
-.badge.deleted-flag { color: var(--danger); background: #fdecec; }
 .card-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .card-actions button, .card-actions select { font-size: .82rem; padding: .3rem .7rem; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
 .btn-important.is-on { background: var(--important-bg); border-color: #9ecfbc; color: var(--important); }

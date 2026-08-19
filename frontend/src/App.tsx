@@ -876,7 +876,7 @@ export default function App() {
               <summary>
                 <span>Processed by you ({processedCards.length})</span>
                 <span className="processed-hint">
-                  Marked important by user, shortlisted by user, or deleted
+                  Marked important by user or shortlisted by user
                 </span>
               </summary>
               <div id="processed-list">
@@ -1292,7 +1292,6 @@ function CandidateCard({
     "candidate-card",
     c.important ? "is-important" : "",
     c.shortlisted ? "is-shortlisted" : "",
-    c.deleted ? "is-deleted" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1303,7 +1302,6 @@ function CandidateCard({
           <span className={`badge ${c.tag_slug}`}>{c.tag}</span>
           {c.important && <span className="badge important-flag">Marked important by user</span>}
           {c.shortlisted && <span className="badge shortlist-flag">Shortlisted by user</span>}
-          {c.deleted && <span className="badge deleted-flag">Deleted</span>}
         </div>
         <div className="card-actions">
           <CategoryPicker
@@ -1326,8 +1324,16 @@ function CandidateCard({
           >
             {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
           </button>
-          <button type="button" className="btn-delete" onClick={() => onPatch(c.id, { deleted: !c.deleted })}>
-            {c.deleted ? "Undelete" : "Delete"}
+          <button
+            type="button"
+            className="btn-delete"
+            onClick={() => {
+              if (window.confirm("Delete this item? This cannot be undone.")) {
+                onPatch(c.id, { deleted: true });
+              }
+            }}
+          >
+            Delete
           </button>
         </div>
       </div>
@@ -1368,7 +1374,6 @@ function MarkedRow({
         <div>
           {c.important && <span className="badge important-flag">Important</span>}
           {c.shortlisted && <span className="badge shortlist-flag">Shortlisted</span>}
-          {c.deleted && <span className="badge deleted-flag">Deleted</span>}
           <span className="badge cat-flag">{c.category_name || "Uncategorised"}</span>
         </div>
         <span className="marked-date">{added ? `Added ${added}` : "Date not recorded"}</span>

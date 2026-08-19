@@ -60,6 +60,7 @@ export function hideAllCategories(categories: Category[]): Set<string> {
 export function filterCandidates(candidates: Candidate[], state: FilterState): Candidate[] {
   const q = state.search.trim().toLowerCase();
   return candidates.filter((c) => {
+    if (c.deleted) return false;
     if (state.tagFilters.size > 0 && !state.tagFilters.has(c.tag_slug as TagFilter)) return false;
     if (state.markFilters.size > 0) {
       const hit =
@@ -95,6 +96,7 @@ export function filterMarkedCandidates(
 ): Candidate[] {
   const q = (opts.search || "").trim().toLowerCase();
   const rows = candidates.filter((c) => {
+    if (c.deleted) return false;
     if (!isMarked(c)) return false;
     if (opts.view === "important" && !c.important) return false;
     if (opts.view === "shortlist" && !c.shortlisted) return false;
