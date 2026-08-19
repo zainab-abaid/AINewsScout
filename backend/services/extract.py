@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Sequence
 
 from openai import OpenAI
 
@@ -14,7 +15,12 @@ def openai_api_key() -> str:
     return OPENAI_API_KEY
 
 
-def extract_candidates(subject: str, date_raw: str, body_md: str) -> ExtractionResult:
+def extract_candidates(
+    subject: str,
+    date_raw: str,
+    body_md: str,
+    categories: Sequence[str] = (),
+) -> ExtractionResult:
     key = openai_api_key()
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not set in .env")
@@ -27,7 +33,7 @@ def extract_candidates(subject: str, date_raw: str, body_md: str) -> ExtractionR
     client = OpenAI(api_key=key, timeout=600.0)
     response = client.responses.parse(
         model=OPENAI_MODEL,
-        instructions=extractor_instructions(),
+        instructions=extractor_instructions(categories),
         input=user,
         text_format=ExtractionResult,
         reasoning={"effort": OPENAI_REASONING_EFFORT},

@@ -38,6 +38,7 @@ class ExtractedCandidate(BaseModel):
     topic: str
     main_idea: str
     excerpt: str
+    category: Optional[str] = None  # best-fit name from the supplied category list, or null
 
 
 class ExtractionResult(BaseModel):

@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from backend.config import IDEA_SEARCH_EMAILS_PER_CHUNK
 from backend.database import session_scope
-from backend.db import Candidate, Email, IdeaSearch, IdeaSearchHit, Job
+from backend.db import Candidate, Category, Email, IdeaSearch, IdeaSearchHit, Job
 from backend.services.extract import dump_raw, extract_candidates
 from backend.services.gmail_sync import (
     fetch_and_store,
@@ -215,6 +215,22 @@ def emails_in_range(
         ]
 
 
+def _load_categories() -> dict[str, int]:
+    """Return {category_name_lower: id} for all categories in the DB."""
+    with session_scope() as session:
+        rows = session.exec(select(Category)).all()
+        return {r.name.lower(): r.id for r in rows if r.id is not None}
+
+
+def _resolve_category(
+    suggested: Optional[str], cat_map: dict[str, int]
+) -> Optional[int]:
+    """Match the model's suggested category name (case-insensitive) to a DB id."""
+    if not suggested:
+        return None
+    return cat_map.get(suggested.strip().lower())
+
+
 def extract_email_ids(
     ids: list[int],
     job_id: Optional[int] = None,
@@ -222,6 +238,14 @@ def extract_email_ids(
 ) -> dict[str, int]:
     counts = {"extracted": 0, "failed": 0, "empty": 0, "skipped": 0}
     total = len(ids)
+    # Fetch categories once for the whole batch; names are passed to the LLM.
+    cat_map = _load_categories()
+    category_names = list(cat_map.keys())  # already lowercased; fine for display too
+    # Re-load with original casing for the prompt.
+    with session_scope() as session:
+        category_names_display = [
+            r.name for r in session.exec(select(Category)).all()
+        ]
     for i, eid in enumerate(ids, start=1):
         with session_scope() as session:
             email = session.get(Email, eid)
@@ -261,7 +285,9 @@ def extract_email_ids(
                 },
             )
         try:
-            result = extract_candidates(subject, date_raw, body)
+            result = extract_candidates(
+                subject, date_raw, body, categories=category_names_display
+            )
             ideas_this_email: Optional[int] = None
             with session_scope() as session:
                 email = session.get(Email, eid)
@@ -286,6 +312,7 @@ def extract_email_ids(
                             topic=cand.topic.strip(),
                             main_idea=cand.main_idea.strip(),
                             excerpt=cand.excerpt.strip(),
+                            category_id=_resolve_category(cand.category, cat_map),
                         )
                     )
                 email.extraction_status = (

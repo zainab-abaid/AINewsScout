@@ -120,7 +120,8 @@ Return structured JSON only (the application schema enforces this). Shape:
       "tag": "HIGH PRIORITY RESEARCH AREA",
       "topic": "Concise topic name",
       "main_idea": "One or two sentences explaining what caught our attention and why it might lead to a hands-on probe.",
-      "excerpt": "Verbatim excerpt from the email. Preserve enough surrounding context to make it understandable, including any Markdown links from that passage."
+      "excerpt": "Verbatim excerpt from the email. Preserve enough surrounding context to make it understandable, including any Markdown links from that passage.",
+      "category": "Exact category name from the supplied list, or null"
     }
   ]
 }
@@ -132,6 +133,8 @@ Return structured JSON only (the application schema enforces this). Shape:
 - `STRONG CANDIDATE`
 - `POSSIBLE CANDIDATE`
 
+`category` must be **exactly one name from the AVAILABLE CATEGORIES list** supplied in the system prompt, copied character-for-character, or `null` if no category fits well. Do not invent new category names.
+
 If no probe-relevant technical material is found, return `"candidates": []`. That empty list is how the application records that the email was processed.
 
 Do not write files. Do not wrap the JSON in Markdown fences. Do not include email title, date or source path in the JSON — the application already has those.
@@ -140,5 +143,6 @@ Before finishing, confirm internally that:
 
 - you used only this one email;
 - every retained item has exactly one allowed tag;
-- every retained item includes a verbatim excerpt; and
+- every retained item includes a verbatim excerpt;
+- every `category` value is either null or an exact string from the supplied category list; and
 - no two retained candidates are duplicates or near-duplicates of the same technical item from different sections of this email.
