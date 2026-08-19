@@ -18,7 +18,7 @@ Nothing in `data/` or `.env` is ever committed.
 
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/)
 - Node 20+
-- An OpenAI API key
+- An OpenAI API key that you will paste in .env.
 - A Google Cloud project that can create an **Internal** OAuth client (a Google Workspace org). Personal Gmail Cloud projects cannot use Internal consent.
 
 ## Setup
@@ -28,32 +28,15 @@ git clone https://github.com/zainab-abaid/AINewsScout.git
 cd AINewsScout
 
 cp .env.example .env
-# Fill in OPENAI_API_KEY, GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET (see below)
+# Fill in OPENAI_API_KEY, GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET
 
 ./run_dev.sh
 ```
 
 Then open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on `127.0.0.1:8000` only, so nothing is reachable from the network.
 
-`run_dev.sh` creates the Python environment with `uv`, installs frontend packages on first run, and starts both servers. To run them separately:
+`run_dev.sh` creates the Python environment with `uv`, installs frontend packages on first run, and starts both servers.
 
-```bash
-uv sync
-export PYTHONPATH="$PWD"
-uv run uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
-
-cd frontend && npm install && npm run dev
-```
-
-### `.env`
-
-```
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5.4
-OPENAI_REASONING_EFFORT=high
-GMAIL_LABEL=AINews
-GMAIL_CLIENT_ID=
-GMAIL_CLIENT_SECRET=
 ```
 
 High reasoning on long newsletters takes roughly 2–3 minutes per email. Lower `OPENAI_REASONING_EFFORT` to `medium` if you want faster, shallower extraction.
@@ -82,12 +65,29 @@ The app requests read-only Gmail scope. The refresh token stays on the machine t
 
 ## Sync
 
-1. Label the newsletters you care about in Gmail (`AINews` by default, configurable with `GMAIL_LABEL`).
+1. Label the newsletters you care about in Gmail with the label `AINews`. To label, follow the instructions in the "Label Your Emails" section below.
 2. Pick a date range in the app UI and click **Sync Gmail**.
 3. The app downloads matching messages, then GPT extracts probe ideas from each one, which takes roughly 2–3 minutes per new email.
 4. If the range was already extracted, you are asked whether to **skip** those emails or **overwrite** the earlier ideas. Overwriting deletes previous candidates and any marks on them.
 
 You can keep reviewing while extraction runs, and reloading the page reattaches to a job that is still going.
+
+### How to Label AINews Emails:
+
+1. Open Gmail in a desktop browser.
+2. In the Gmail search bar, click the Show search options icon on the right.
+3. In the From field, enter:
+swyx+ainews@substack.com
+4. Click Create filter. Gmail lets you create filters based on sender and other search criteria.
+5. On the next screen:
+   Check Apply the label
+   Select AINews
+   If the label does not exist yet, choose New label… and create AINews
+   Check Also apply filter to matching conversations — this applies the label to the existing emails that match the sender.
+6. Click Create filter.
+
+From now on, Gmail will automatically apply the AINews label to new emails from swyx+ainews@substack.com, while the “also apply” option takes care of the existing matching emails.
+## How the UI Works
 
 The UI has two tabs: **Review** for working through the queue, and **Marked** for everything you kept.
 
