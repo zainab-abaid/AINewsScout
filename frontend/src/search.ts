@@ -64,32 +64,29 @@ export function searchScopeLabel(preview: {
   chunks: number;
 }): string {
   if (preview.will_fetch > 0) {
-    const pull = `${preview.will_fetch} missing email${preview.will_fetch === 1 ? "" : "s"}`;
-    const kept = preview.stored
-      ? ` · ${preview.stored} already stored, not re-downloaded`
+    const stored = preview.stored
+      ? `${preview.stored} stored · `
       : "";
-    const c = `${preview.chunks} batch${preview.chunks === 1 ? "" : "es"}`;
-    return `Will pull ${pull} from Gmail${kept}, then read ${preview.emails} in ${c}.`;
+    return `${stored}${preview.will_fetch} new from Gmail`;
   }
   if (preview.emails <= 0) {
     return preview.gmail_connected
       ? "No emails in this range."
-      : "No stored emails in this range. Connect Gmail to pull them.";
+      : "No stored emails. Connect Gmail to pull them.";
   }
-  const e = `${preview.emails} email${preview.emails === 1 ? "" : "s"}`;
-  const c = `${preview.chunks} batch${preview.chunks === 1 ? "" : "es"}`;
-  return `Will read ${e} in ${c}, about 1–3 minutes per batch.`;
+  return `${preview.emails} stored`;
 }
 
 export function searchStatusLine(search: IdeaSearch): string {
   const found = `${search.hits_total} finding${search.hits_total === 1 ? "" : "s"}`;
   if (isSearchRunning(search)) {
     const phase = search.phase || "";
-    if (phase === "listing") return "Checking Gmail for emails not stored yet";
+    if (phase === "listing") return "Checking Gmail…";
     if (phase === "fetching") {
-      const neu = search.new_emails || 0;
-      const skipped = search.skipped || 0;
-      return `Downloading missing emails · ${neu} new, ${skipped} already stored`;
+      const listed = search.listed || 0;
+      const current = Math.min(search.current || 0, listed);
+      if (listed > 0) return `Downloading ${current} of ${listed} emails`;
+      return "Downloading emails…";
     }
     if (phase === "fetched") return "Download complete · starting the search";
     const at = Math.min(search.chunks_total, search.chunks_done + search.chunks_failed + 1);
@@ -116,4 +113,35 @@ export function searchRangeLabel(search: IdeaSearch): string {
   if (search.date_from) return `from ${search.date_from}`;
   if (search.date_to) return `through ${search.date_to}`;
   return "all stored emails";
+}
+
+function parseSearchTime(iso: string): number {
+  if (!iso) return NaN;
+  const trimmed = iso.trim();
+  if (/[zZ]$/.test(trimmed) || /[+-]\d{2}:?\d{2}$/.test(trimmed)) {
+    return new Date(trimmed).getTime();
+  }
+  return new Date(`${trimmed}Z`).getTime();
+}
+
+/** When the search was run, in the viewer's local timezone. */
+export function searchWhenLabel(iso: string): string {
+  const ms = parseSearchTime(iso);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function sortSearchesNewestFirst<T extends { id: number; created_at: string }>(
+  rows: T[],
+): T[] {
+  return [...rows].sort((a, b) => {
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+    return b.id - a.id;
+  });
 }

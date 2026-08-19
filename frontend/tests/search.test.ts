@@ -10,6 +10,8 @@ import {
   searchRangeLabel,
   searchScopeLabel,
   searchStatusLine,
+  searchWhenLabel,
+  sortSearchesNewestFirst,
 } from "../src/search";
 
 function hit(id: number, over: Partial<SearchHit> = {}): SearchHit {
@@ -197,7 +199,7 @@ describe("status and scope wording", () => {
         gmail_connected: true,
         chunks: 3,
       }),
-    ).toBe("Will read 12 emails in 3 batches, about 1–3 minutes per batch.");
+    ).toBe("12 stored");
     expect(
       searchScopeLabel({
         emails: 1,
@@ -206,7 +208,7 @@ describe("status and scope wording", () => {
         gmail_connected: false,
         chunks: 1,
       }),
-    ).toBe("Will read 1 email in 1 batch, about 1–3 minutes per batch.");
+    ).toBe("1 stored");
     expect(
       searchScopeLabel({
         emails: 0,
@@ -215,7 +217,7 @@ describe("status and scope wording", () => {
         gmail_connected: false,
         chunks: 0,
       }),
-    ).toBe("No stored emails in this range. Connect Gmail to pull them.");
+    ).toBe("No stored emails. Connect Gmail to pull them.");
   });
 
   it("says when missing issues will be pulled from Gmail", () => {
@@ -227,9 +229,7 @@ describe("status and scope wording", () => {
         gmail_connected: true,
         chunks: 4,
       }),
-    ).toBe(
-      "Will pull 2 missing emails from Gmail · 12 already stored, not re-downloaded, then read 14 in 4 batches.",
-    );
+    ).toBe("12 stored · 2 new from Gmail");
   });
 
   it("names the Gmail download while a search is fetching", () => {
@@ -238,12 +238,23 @@ describe("status and scope wording", () => {
         search({
           status: "running",
           phase: "fetching",
-          new_emails: 2,
-          skipped: 12,
+          listed: 0,
+          current: 0,
           hits_total: 0,
         }),
       ),
-    ).toBe("Downloading missing emails · 2 new, 12 already stored");
+    ).toBe("Downloading emails…");
+    expect(
+      searchStatusLine(
+        search({
+          status: "running",
+          phase: "fetching",
+          listed: 20,
+          current: 3,
+          hits_total: 0,
+        }),
+      ),
+    ).toBe("Downloading 3 of 20 emails");
   });
 
   it("mentions pulled emails on a finished search", () => {
@@ -259,5 +270,23 @@ describe("status and scope wording", () => {
     );
     expect(searchRangeLabel(search({ date_from: "2026-08-01" }))).toBe("from 2026-08-01");
     expect(searchRangeLabel(search({ date_to: "2026-08-19" }))).toBe("through 2026-08-19");
+  });
+
+  it("lists past searches newest first", () => {
+    const older = search({ id: 1, created_at: "2026-08-18T04:00:00", question: "older" });
+    const newer = search({ id: 2, created_at: "2026-08-19T04:00:00", question: "newer" });
+    expect(sortSearchesNewestFirst([older, newer]).map((s) => s.id)).toEqual([2, 1]);
+    expect(sortSearchesNewestFirst([newer, older]).map((s) => s.id)).toEqual([2, 1]);
+  });
+
+  it("breaks a created_at tie with the higher id first", () => {
+    const a = search({ id: 3, created_at: "2026-08-19T04:00:00" });
+    const b = search({ id: 9, created_at: "2026-08-19T04:00:00" });
+    expect(sortSearchesNewestFirst([a, b]).map((s) => s.id)).toEqual([9, 3]);
+  });
+
+  it("formats a search timestamp rather than leaving it blank", () => {
+    expect(searchWhenLabel("2026-08-19T09:32:00")).toMatch(/2026/);
+    expect(searchWhenLabel("")).toBe("");
   });
 });

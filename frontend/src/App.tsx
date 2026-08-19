@@ -39,6 +39,8 @@ import {
   searchRangeLabel,
   searchScopeLabel,
   searchStatusLine,
+  searchWhenLabel,
+  sortSearchesNewestFirst,
   type HitView,
 } from "./search";
 
@@ -1600,13 +1602,17 @@ function SearchView({
       .searches()
       .then((rows) => {
         setHistory(rows);
-        const live = rows.find(isSearchRunning) ?? rows[0];
+        const live = rows.find(isSearchRunning);
         if (live) openSearch(live.id);
       })
       .catch((e: Error) => setError(e.message));
   }, [openSearch, setError]);
 
   useEffect(() => {
+    if (!from && !to) {
+      setPreview(null);
+      return;
+    }
     let cancelled = false;
     const t = setTimeout(() => {
       api
@@ -1675,6 +1681,7 @@ function SearchView({
     }
   }
 
+  const pastSearches = useMemo(() => sortSearchesNewestFirst(history), [history]);
   const hits = active?.hits ?? [];
   const counts = useMemo(() => countByRelevance(hits), [hits]);
   const shown = useMemo(
@@ -1752,26 +1759,56 @@ function SearchView({
         {error && <p className="err">{error}</p>}
       </section>
 
-      {history.length > 0 && (
-        <div className="search-history">
-          <span className="search-history-label">Earlier searches</span>
-          {history.map((s) => (
-            <span key={s.id} className={`history-chip ${active?.id === s.id ? "on" : ""}`}>
-              <button type="button" className="linkish" onClick={() => openSearch(s.id)}>
-                {truncate(s.question, 60)}
-                {isSearchRunning(s) ? " · running" : ` · ${s.hits_total}`}
-              </button>
-              <button
-                type="button"
-                className="chip-x"
-                aria-label="Delete this search"
-                onClick={() => remove(s.id)}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
+      {pastSearches.length > 0 && (
+        <details className="search-history">
+          <summary>View my past searches</summary>
+          <p className="search-history-hint">
+            Click a row to open the saved findings. It does not run the search again.
+          </p>
+          <table className="search-history-table">
+            <thead>
+              <tr>
+                <th>Search date</th>
+                <th>Question</th>
+                <th>Date range</th>
+                <th>
+                  <span className="sr-only">Delete</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {pastSearches.map((s) => (
+                <tr
+                  key={s.id}
+                  className={active?.id === s.id ? "on" : ""}
+                  onClick={() => openSearch(s.id)}
+                >
+                  <td className="search-history-when">
+                    {searchWhenLabel(s.created_at)}
+                    {isSearchRunning(s) ? " · running" : ""}
+                  </td>
+                  <td className="search-history-question" title={s.question}>
+                    {s.question}
+                  </td>
+                  <td className="search-history-range">{searchRangeLabel(s)}</td>
+                  <td className="search-history-delete">
+                    <button
+                      type="button"
+                      className="chip-x"
+                      aria-label="Delete this search"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        remove(s.id);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
       )}
 
       {active && (
@@ -1968,7 +2005,13 @@ function KeepHitPrompt({
   return (
     <>
       <div className="email-backdrop" onClick={onClose} />
-      <div className="comment-modal keep-modal">
+      <form
+        className="comment-modal keep-modal"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save();
+        }}
+      >
         <h2>Add to marked items</h2>
         <p className="meta">{hit.title || "This finding"}</p>
 
@@ -2057,14 +2100,14 @@ function KeepHitPrompt({
         />
         {localError && <p className="err">{localError}</p>}
         <div className="comment-form-actions">
-          <button type="button" className="btn-primary" disabled={!canSave} onClick={save}>
+          <button type="submit" className="btn-primary" disabled={!canSave}>
             Add to marked items
           </button>
           <button type="button" className="btn-quiet" onClick={onClose} disabled={busy}>
             Cancel
           </button>
         </div>
-      </div>
+      </form>
     </>
   );
 }
