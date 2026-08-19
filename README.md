@@ -62,6 +62,8 @@ High reasoning on long newsletters takes roughly 2–3 minutes per email. Lower 
 
 Google does not let this app create an OAuth client for you. Someone in the Workspace org creates one **once** in Cloud Console, then every user puts the same client id and secret in their own `.env` and signs in as themselves.
 
+### Steps already done - you do not need to do these unless the existing GCP project is deleted:
+
 1. Sign in to [Google Cloud Console](https://console.cloud.google.com/) with a Workspace account in your organisation.
 2. Create or select a project **in that organisation**. Internal OAuth is unavailable on a personal Gmail Cloud account.
 3. APIs & Services → enable the **Gmail API**.
@@ -71,18 +73,18 @@ Google does not let this app create an OAuth client for you. Someone in the Work
 
    `http://127.0.0.1:8000/api/gmail/callback`
 
-7. Copy the client id and secret into `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` in `.env`.
-8. Restart the app, click **Connect Gmail** in the header, and sign in as yourself.
+### Steps you need to execute:
+
+7. Copy your client id and secret (provided separately) into `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` in `.env`.
+8. Reload the app, click **Connect Gmail** in the header, and sign in as yourself.
 
 The app requests read-only Gmail scope. The refresh token stays on the machine that clicked Connect; **Disconnect** in the header removes it locally without touching the Cloud client.
-
-If Connect Gmail is blocked, ask IT to trust this internal OAuth client for Gmail.
 
 ## Sync
 
 1. Label the newsletters you care about in Gmail (`AINews` by default, configurable with `GMAIL_LABEL`).
-2. Pick a date range and click **Sync Gmail**.
-3. The app downloads matching messages, then GPT extracts probe ideas from each one, roughly 2–3 minutes per new email.
+2. Pick a date range in the app UI and click **Sync Gmail**.
+3. The app downloads matching messages, then GPT extracts probe ideas from each one, which takes roughly 2–3 minutes per new email.
 4. If the range was already extracted, you are asked whether to **skip** those emails or **overwrite** the earlier ideas. Overwriting deletes previous candidates and any marks on them.
 
 You can keep reviewing while extraction runs, and reloading the page reattaches to a job that is still going.
