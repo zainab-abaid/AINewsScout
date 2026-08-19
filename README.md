@@ -23,7 +23,7 @@ Nothing in `data/` or `.env` is ever committed.
 
 ## Setup
 
-You *must* set up the Gmail label on the emails you want to analyse first before the app will work properly. See "How to Label AINews Emails" section below. 
+You *must* set up the AINews label on the Gmail emails you want to analyse first before the app will work properly. See "How to Label AINews Emails" section below. 
 
 ### How to Label AINews Emails:
 
@@ -58,11 +58,11 @@ Then open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on `12
 `run_dev.sh` creates the Python environment with `uv`, installs frontend packages on first run, and starts both servers.
 
 
-## Connect Gmail
+### Connecting Gmail
 
 Google does not let this app create an OAuth client for you. Someone in the Workspace org creates one **once** in Cloud Console, then every user puts the same client id and secret in their own `.env` and signs in as themselves.
 
-### Steps already done - you do not need to do these unless the existing GCP project is deleted:
+#### Steps already done - you do not need to do these unless the existing GCP project is deleted:
 
 1. Sign in to [Google Cloud Console](https://console.cloud.google.com/) with a Workspace account in your organisation.
 2. Create or select a project **in that organisation**. Internal OAuth is unavailable on a personal Gmail Cloud account.
@@ -73,14 +73,14 @@ Google does not let this app create an OAuth client for you. Someone in the Work
 
    `http://127.0.0.1:8000/api/gmail/callback`
 
-### Steps you need to execute:
+#### Steps you need to execute:
 
 7. Copy your client id and secret (provided separately) into `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` in `.env`.
 8. Now you can launch the app, click **Connect Gmail** in the header, and sign in with your company Google account.
 
 The app requests read-only Gmail scope. The refresh token stays on the machine that clicked Connect; **Disconnect** in the header removes it locally without touching the Cloud client.
 
-## Sync Emails
+### Sync Emails
 
 1. Label the newsletters you care about in Gmail with the label `AINews`. To label, follow the instructions in the "How to Label AINews Emails" section.
 2. Pick a date range in the app UI and click **Sync Gmail**.
