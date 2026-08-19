@@ -97,6 +97,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI News Newsletter Explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <style>
 :root{--bg:#f4f1ea;--ink:#1a1a1a;--muted:#5c5c5c;--card:#fff;--border:#ddd6cb;
   --important:#0f6b4c;--important-bg:#e3f5ee;--shortlist:#6b3fa0;--shortlist-bg:#f0e8fa;
@@ -113,22 +114,30 @@ nav{display:flex;gap:.3rem;margin-bottom:1rem;flex-wrap:wrap}
 nav button{font:inherit;font-size:.92rem;cursor:pointer;padding:.35rem .85rem;
   border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--muted)}
 nav button.on{background:var(--card);color:var(--ink);font-weight:650;border-color:var(--ink)}
-.controls{display:flex;flex-wrap:wrap;gap:.5rem .7rem;align-items:center;margin-bottom:.9rem}
-.controls select,.controls input[type=date]{font:inherit;font-size:.88rem;
-  padding:.3rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--card)}
-.controls label{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:.3rem}
+.controls{display:flex;flex-wrap:wrap;gap:.7rem 1rem;align-items:flex-start;margin-bottom:.9rem}
+.date-group{display:flex;gap:.5rem;align-items:center}
+.date-group label{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:.3rem}
+.date-group input[type=date]{font:inherit;font-size:.88rem;padding:.3rem .55rem;
+  border:1px solid var(--border);border-radius:8px;background:var(--card)}
+.cat-group{display:flex;flex-direction:column;gap:.25rem}
+.cat-group-label{font-size:.82rem;font-weight:600;color:var(--muted);margin-bottom:.1rem}
+.cat-checks{display:flex;flex-wrap:wrap;gap:.25rem .6rem}
+.cat-checks label{font-size:.83rem;color:var(--ink);display:flex;align-items:center;gap:.25rem;cursor:pointer}
 .btn-pdf{font:inherit;font-size:.88rem;cursor:pointer;padding:.35rem .85rem;
   border-radius:8px;border:1px solid var(--border);background:var(--ink);color:#fff;
-  font-weight:650;margin-left:auto}
+  font-weight:650;align-self:flex-end;margin-left:auto}
 .card{background:var(--card);border:1px solid var(--border);border-radius:10px;
   padding:1rem 1.1rem;margin-bottom:.75rem}
 .card h2{margin:0 0 .2rem;font-size:1rem;font-weight:650}
 .card .meta{margin:0 0 .5rem;font-size:.82rem;color:var(--muted)}
 .card .meta button{all:unset;cursor:pointer;color:var(--ink);text-decoration:underline;
   text-underline-offset:3px;font-size:.82rem}
-.card .excerpt{font-size:.9rem;white-space:pre-wrap;margin:.5rem 0 0;
-  border-left:3px solid var(--border);padding-left:.75rem}
-.card .notes{font-size:.85rem;color:var(--muted);margin:.5rem 0 0;font-style:italic}
+.card .md-block{font-size:.9rem;margin:.5rem 0 0;border-left:3px solid var(--border);
+  padding-left:.75rem}
+.card .md-block p{margin:.2rem 0}
+.card .md-block a{color:var(--ink)}
+.card .notes{font-size:.85rem;color:var(--muted);margin:.6rem 0 0;font-style:italic;
+  border-left:3px solid var(--shortlist-bg);padding-left:.6rem}
 .badge{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;
   text-transform:uppercase;border-radius:4px;padding:.1rem .45rem;margin:.1rem .2rem .1rem 0}
 .b-imp{background:var(--important-bg);color:var(--important)}
@@ -151,7 +160,8 @@ nav button.on{background:var(--card);color:var(--ink);font-weight:650;border-col
 .email-body ul{margin:0 0 .8rem;padding-left:1.2rem}
 .email-body li{margin:.15rem 0}
 .email-body hr{border:0;border-top:1px solid var(--border);margin:.9rem 0}
-.highlight{background:#fff176;border-radius:3px}
+.email-body a{color:var(--ink)}
+mark.highlight{background:#fff176;border-radius:3px}
 
 @media print{
   header,nav,.controls{display:none!important}
@@ -175,17 +185,14 @@ nav button.on{background:var(--card);color:var(--ink);font-weight:650;border-col
   </nav>
 
   <div class="controls">
-    <label>Category
-      <select id="cat-filter" onchange="render()">
-        <option value="">All categories</option>
-      </select>
-    </label>
-    <label>From
-      <input type="date" id="date-from" onchange="render()">
-    </label>
-    <label>To
-      <input type="date" id="date-to" onchange="render()">
-    </label>
+    <div class="cat-group">
+      <div class="cat-group-label">Categories</div>
+      <div class="cat-checks" id="cat-checks"></div>
+    </div>
+    <div class="date-group">
+      <label>From <input type="date" id="date-from" onchange="render()"></label>
+      <label>To <input type="date" id="date-to" onchange="render()"></label>
+    </div>
     <button class="btn-pdf" onclick="window.print()">Download PDF</button>
   </div>
 
@@ -204,16 +211,27 @@ nav button.on{background:var(--card);color:var(--ink);font-weight:650;border-col
 const DATA = __JSON_DATA__;
 
 let currentTab = 'all';
-const catSel = document.getElementById('cat-filter');
+// item id → item lookup so onclick handlers don't embed data in attributes
+const ITEM_MAP = {};
+DATA.items.forEach(item => { ITEM_MAP[item.id] = item; });
+
 const dateFrom = document.getElementById('date-from');
 const dateTo = document.getElementById('date-to');
 
-// Populate category dropdown.
+// Build category checkboxes (multi-select).
+const catChecksEl = document.getElementById('cat-checks');
 DATA.categories.forEach(c => {
-  const opt = document.createElement('option');
-  opt.value = c; opt.textContent = c;
-  catSel.appendChild(opt);
+  const lbl = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.value = c; cb.addEventListener('change', render);
+  lbl.appendChild(cb);
+  lbl.appendChild(document.createTextNode(' ' + c));
+  catChecksEl.appendChild(lbl);
 });
+
+function selectedCats() {
+  return Array.from(catChecksEl.querySelectorAll('input:checked')).map(el => el.value);
+}
 
 function switchTab(t) {
   currentTab = t;
@@ -222,19 +240,24 @@ function switchTab(t) {
   render();
 }
 
+function mdInline(text) {
+  // Render markdown but strip outer <p> tags so it stays inline-ish.
+  const html = marked.parse(String(text || ''), {breaks: true});
+  return html.replace(/^<p>([\s\S]*?)<\/p>\s*$/, '$1').trim();
+}
+
 function render() {
-  const cat = catSel.value;
+  const cats = selectedCats();
   const from = dateFrom.value;
   const to = dateTo.value;
   let items = DATA.items.filter(item => {
     if (currentTab === 'important' && !item.important) return false;
     if (currentTab === 'shortlisted' && !item.shortlisted) return false;
-    if (cat && item.category !== cat) return false;
+    if (cats.length && !cats.includes(item.category)) return false;
     if (from && item.date_iso && item.date_iso < from) return false;
     if (to && item.date_iso && item.date_iso > to) return false;
     return true;
   });
-  // Sort: newest first, then by topic.
   items.sort((a, b) => {
     if (a.date_iso !== b.date_iso) return a.date_iso < b.date_iso ? 1 : -1;
     return a.topic.localeCompare(b.topic);
@@ -250,73 +273,80 @@ function render() {
       item.shortlisted ? '<span class="badge b-short">Shortlisted for probe</span>' : '',
     ].join('');
     const catLabel = item.category
-      ? `<span style="color:var(--muted);margin-left:.3rem">· ${escHtml(item.category)}</span>` : '';
-    const notes = item.notes
-      ? `<p class="notes">${escHtml(item.notes)}</p>` : '';
+      ? `<span style="color:var(--muted);margin-left:.3rem">· ${esc(item.category)}</span>` : '';
+    const notes = item.notes && item.notes.trim()
+      ? `<p class="notes">${esc(item.notes)}</p>` : '';
     return `<div class="card">
-      <h2>${escHtml(item.topic)}</h2>
+      <h2>${esc(item.topic)}</h2>
       <p class="meta">
-        <button onclick="openEmail(${item.email_id}, ${JSON.stringify(item.excerpt)})">${escHtml(item.email_title)}</button>
-        · ${escHtml(item.email_date)}${catLabel}
+        <button data-item-id="${item.id}">${esc(item.email_title)}</button>
+        · ${esc(item.email_date)}${catLabel}
       </p>
       ${badges}
-      <p class="excerpt">${escHtml(item.main_idea)}</p>
-      <p class="excerpt">${escHtml(item.excerpt)}</p>
+      <div class="md-block">${mdInline(item.main_idea)}</div>
+      <div class="md-block">${mdInline(item.excerpt)}</div>
       ${notes}
     </div>`;
   }).join('');
+
+  // Attach click handlers to email buttons (avoids embedding data in onclick attrs).
+  list.querySelectorAll('button[data-item-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = ITEM_MAP[Number(btn.dataset.itemId)];
+      if (item) openEmail(item.email_id, item.excerpt);
+    });
+  });
 }
 
-function escHtml(s) {
+function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
-// ---- marked.js CDN for Markdown rendering ----
-const mdScript = document.createElement('script');
-mdScript.src = 'https://cdn.jsdelivr.net/npm/marked@12/marked.min.js';
-document.head.appendChild(mdScript);
 
 function openEmail(emailId, excerpt) {
   const em = DATA.emails[String(emailId)];
   if (!em) return;
   document.getElementById('modal-title').textContent = em.subject;
   const bodyEl = document.getElementById('modal-body');
-  if (window.marked) {
-    bodyEl.innerHTML = window.marked.parse(em.body_md || '');
-  } else {
-    bodyEl.textContent = em.body_md || '';
-  }
+  bodyEl.innerHTML = marked.parse(em.body_md || '', {breaks: true});
   document.getElementById('backdrop').style.display = '';
   document.getElementById('email-modal').style.display = '';
   document.body.style.overflow = 'hidden';
 
-  // Scroll to and highlight the excerpt passage.
-  requestAnimationFrame(() => {
-    const words = String(excerpt || '').split(/\s+/).filter(Boolean).slice(0, 12);
-    if (!words.length) return;
-    scrollToExcerpt(bodyEl, words);
-  });
+  // Strip markdown syntax from excerpt to get plain words for matching.
+  const plainExcerpt = String(excerpt || '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`#]/g, '');
+  setTimeout(() => scrollToExcerpt(bodyEl, plainExcerpt), 80);
 }
 
-function scrollToExcerpt(container, words) {
-  // Walk text nodes and find the best-matching span.
-  const pattern = words.slice(0, 6).map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\s+');
-  const re = new RegExp(pattern, 'i');
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let node, best = null, bestIdx = -1;
-  while ((node = walker.nextNode())) {
-    const m = node.textContent.search(re);
-    if (m >= 0) { best = node; bestIdx = m; break; }
+function scrollToExcerpt(container, excerpt) {
+  const words = excerpt.trim().split(/\s+/).filter(Boolean).slice(0, 8);
+  if (!words.length) return;
+  // Try progressively shorter prefixes until we find a match.
+  for (let len = words.length; len >= 3; len--) {
+    const pattern = words.slice(0, len)
+      .map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('[\\s\\S]{0,4}');
+    const re = new RegExp(pattern, 'i');
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const m = node.textContent.search(re);
+      if (m < 0) continue;
+      try {
+        const range = document.createRange();
+        const end = Math.min(node.textContent.length, m + 200);
+        range.setStart(node, m);
+        range.setEnd(node, end);
+        const mark = document.createElement('mark');
+        mark.className = 'highlight';
+        range.surroundContents(mark);
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch { /* node boundary edge case – skip */ }
+      return;
+    }
   }
-  if (!best) return;
-  const range = document.createRange();
-  range.setStart(best, bestIdx);
-  range.setEnd(best, Math.min(best.textContent.length, bestIdx + 200));
-  const mark = document.createElement('mark');
-  mark.className = 'highlight';
-  range.surroundContents(mark);
-  mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Fallback: scroll to top of modal.
+  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function closeEmail() {
