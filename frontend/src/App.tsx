@@ -4,7 +4,11 @@ import {
   type Candidate,
   type Category,
   type EmailDetail,
+  type IdeaSearch,
+  type IdeaSearchDetail,
   type Job,
+  type SearchHit,
+  type SearchPreview,
   type SettingsStatus,
   type Stats,
   type SyncPreview,
@@ -26,11 +30,42 @@ import {
   type MarkView,
   type TagFilter,
 } from "./filters";
+import {
+  countByRelevance,
+  filterHits,
+  isSearchRunning,
+  relevanceLabel,
+  searchProgress,
+  searchRangeLabel,
+  searchScopeLabel,
+  searchStatusLine,
+  type HitView,
+} from "./search";
 
 const TAG_OPTIONS: { id: TagFilter; label: string }[] = [
   { id: "high-priority", label: "High priority" },
   { id: "strong", label: "Strong" },
   { id: "possible", label: "Possible" },
+];
+
+type TabId = "review" | "marked" | "search";
+
+const TABS: { id: TabId; label: string; sub: string }[] = [
+  {
+    id: "review",
+    label: "Important items extracted from emails",
+    sub: "What GPT pulled out of each newsletter",
+  },
+  {
+    id: "marked",
+    label: "Review marked items",
+    sub: "Everything you marked important or shortlisted",
+  },
+  {
+    id: "search",
+    label: "Search for ideas",
+    sub: "Ask a question across a date range of emails",
+  },
 ];
 
 const MARK_OPTIONS: { id: MarkFilter; label: string }[] = [
@@ -380,7 +415,7 @@ export default function App() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
-  const [view, setView] = useState<"review" | "marked">("review");
+  const [view, setView] = useState<TabId>("review");
   const [unprocessedOnly, setUnprocessedOnly] = useState(true);
   const [tagFilters, setTagFilters] = useState<Set<TagFilter>>(new Set());
   const [markFilters, setMarkFilters] = useState<Set<MarkFilter>>(new Set());
@@ -611,30 +646,49 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="tabs">
-        <button
-          type="button"
-          className={view === "review" ? "on" : ""}
-          onClick={() => {
-            setOpenMenu(null);
-            setView("review");
-          }}
-        >
-          Review
-        </button>
-        <button
-          type="button"
-          className={view === "marked" ? "on" : ""}
-          onClick={() => {
-            setOpenMenu(null);
-            setView("marked");
-          }}
-        >
-          Marked{markedCount ? ` · ${markedCount}` : ""}
-        </button>
+      <nav className="tabs" role="tablist" aria-label="Sections">
+        {TABS.map((tab) => {
+          const count = tab.id === "marked" ? markedCount : 0;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={view === tab.id}
+              className={`tab ${view === tab.id ? "on" : ""}`}
+              onClick={() => {
+                setOpenMenu(null);
+                setView(tab.id);
+              }}
+            >
+              <span className="tab-label">
+                {tab.label}
+                {count ? <span className="tab-count">{count}</span> : null}
+              </span>
+              <span className="tab-sub">{tab.sub}</span>
+            </button>
+          );
+        })}
       </nav>
 
-      {view === "marked" ? (
+      {view === "search" ? (
+        <SearchView
+          onOpenEmail={openEmail}
+          setError={setError}
+          error={error}
+          categories={categories}
+          onAddCategory={addCategory}
+          onKept={(cand) => {
+            setCandidates((prev) => {
+              if (prev.some((c) => c.id === cand.id)) {
+                return prev.map((c) => (c.id === cand.id ? cand : c));
+              }
+              return [cand, ...prev];
+            });
+            api.stats().then(setStats).catch(() => undefined);
+          }}
+        />
+      ) : view === "marked" ? (
         <MarkedView
           candidates={candidates}
           categories={categories}
@@ -1481,6 +1535,536 @@ function MarkedView({
           ))
         )}
       </main>
+    </>
+  );
+}
+
+const HIT_VIEWS: { id: HitView; label: string }[] = [
+  { id: "all", label: "All findings" },
+  { id: "direct", label: "Direct answers" },
+  { id: "related", label: "Related" },
+];
+
+const EXAMPLE_QUESTION =
+  "List the studies and papers mentioned in the emails that conclude the harness affects how well models perform on benchmark tasks.";
+
+/**
+ * Agentic search over the stored emails: the backend reads the range in batches
+ * and streams findings back, so results appear while the search is still going.
+ */
+function SearchView({
+  onOpenEmail,
+  setError,
+  error,
+  categories,
+  onAddCategory,
+  onKept,
+}: {
+  onOpenEmail: (id: number, excerpt: string) => void;
+  setError: (s: string) => void;
+  error: string;
+  categories: Category[];
+  onAddCategory: (name: string) => Promise<Category>;
+  onKept: (c: Candidate) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [history, setHistory] = useState<IdeaSearch[]>([]);
+  const [active, setActive] = useState<IdeaSearchDetail | null>(null);
+  const [preview, setPreview] = useState<SearchPreview | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [hitView, setHitView] = useState<HitView>("all");
+  const [hitSearch, setHitSearch] = useState("");
+  const [keepHit, setKeepHit] = useState<SearchHit | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  const running = isSearchRunning(active);
+
+  const openSearch = useCallback(
+    async (id: number) => {
+      try {
+        setActive(await api.search(id));
+        setHitView("all");
+        setHitSearch("");
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [setError],
+  );
+
+  // Reattach to a search still running from an earlier visit or page reload.
+  useEffect(() => {
+    api
+      .searches()
+      .then((rows) => {
+        setHistory(rows);
+        const live = rows.find(isSearchRunning) ?? rows[0];
+        if (live) openSearch(live.id);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [openSearch, setError]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api
+        .searchPreview({ date_from: from || undefined, date_to: to || undefined })
+        .then((p) => {
+          if (!cancelled) setPreview(p);
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [from, to]);
+
+  useEffect(() => {
+    if (!running || !active) return;
+    const id = active.id;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    const poll = setInterval(async () => {
+      try {
+        const next = await api.search(id);
+        setActive(next);
+        if (!isSearchRunning(next)) {
+          api.searches().then(setHistory).catch(() => undefined);
+        }
+      } catch {
+        /* ignore poll errors */
+      }
+    }, 2000);
+    return () => {
+      clearInterval(tick);
+      clearInterval(poll);
+    };
+  }, [running, active?.id]);
+
+  async function run() {
+    const q = question.trim();
+    if (!q || starting) return;
+    setStarting(true);
+    setError("");
+    try {
+      const created = await api.createSearch({
+        question: q,
+        date_from: from || undefined,
+        date_to: to || undefined,
+      });
+      setHistory((prev) => [created, ...prev]);
+      setActive({ ...created, hits: [] });
+      setHitView("all");
+      setHitSearch("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function remove(id: number) {
+    try {
+      await api.deleteSearch(id);
+      setHistory((prev) => prev.filter((s) => s.id !== id));
+      if (active?.id === id) setActive(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const hits = active?.hits ?? [];
+  const counts = useMemo(() => countByRelevance(hits), [hits]);
+  const shown = useMemo(
+    () => filterHits(hits, { view: hitView, search: hitSearch }),
+    [hits, hitView, hitSearch],
+  );
+  const progress = active ? searchProgress(active) : null;
+
+  return (
+    <>
+      <section className="search-panel">
+        <h2>Ask a question across your emails</h2>
+        <p className="search-intro">
+          Every newsletter in the range is read in batches by GPT-5.4, which quotes the
+          passages that bear on your question and says why each one is relevant. Missing
+          issues are pulled from Gmail first; anything already stored is left as-is.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            run();
+          }}
+        >
+          <textarea
+            rows={3}
+            value={question}
+            placeholder={EXAMPLE_QUESTION}
+            aria-label="Your question"
+            disabled={starting || running}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run();
+            }}
+          />
+          <div className="search-controls">
+            <label className="date-mini">
+              From
+              <input
+                type="date"
+                value={from}
+                disabled={starting || running}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="date-mini">
+              To
+              <input
+                type="date"
+                value={to}
+                disabled={starting || running}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </label>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={starting || running || !question.trim()}
+            >
+              {running ? "Searching…" : "Search emails"}
+            </button>
+            {!question.trim() && (
+              <button
+                type="button"
+                className="btn-quiet"
+                onClick={() => setQuestion(EXAMPLE_QUESTION)}
+              >
+                Use the example
+              </button>
+            )}
+            <span className="search-scope">
+              {preview ? searchScopeLabel(preview) : ""}
+            </span>
+          </div>
+        </form>
+        {error && <p className="err">{error}</p>}
+      </section>
+
+      {history.length > 0 && (
+        <div className="search-history">
+          <span className="search-history-label">Earlier searches</span>
+          {history.map((s) => (
+            <span key={s.id} className={`history-chip ${active?.id === s.id ? "on" : ""}`}>
+              <button type="button" className="linkish" onClick={() => openSearch(s.id)}>
+                {truncate(s.question, 60)}
+                {isSearchRunning(s) ? " · running" : ` · ${s.hits_total}`}
+              </button>
+              <button
+                type="button"
+                className="chip-x"
+                aria-label="Delete this search"
+                onClick={() => remove(s.id)}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {active && (
+        <section className="search-result-head">
+          <h2>{active.question}</h2>
+          <p className="meta">
+            {searchRangeLabel(active)} · {searchStatusLine(active)}
+            {running ? ` · ${elapsed(active.created_at, now)} elapsed` : ""}
+          </p>
+          {running && progress && (
+            <div className="progress-track" aria-hidden="true">
+              <div
+                className={`progress-fill ${progress.determinate ? "" : "indeterminate"}`}
+                style={progress.determinate ? { width: `${progress.pct}%` } : undefined}
+              />
+            </div>
+          )}
+          {hits.length > 0 && (
+            <div className="filter-bar">
+              <div className="segmented">
+                {HIT_VIEWS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={hitView === opt.id ? "on" : ""}
+                    onClick={() => setHitView(opt.id)}
+                  >
+                    {opt.label}
+                    {opt.id === "direct" && counts.direct ? ` · ${counts.direct}` : ""}
+                    {opt.id === "related" && counts.related ? ` · ${counts.related}` : ""}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="search"
+                placeholder="Search within findings…"
+                value={hitSearch}
+                onChange={(e) => setHitSearch(e.target.value)}
+              />
+              <span className="filter-count">{shown.length} shown</span>
+            </div>
+          )}
+        </section>
+      )}
+
+      <main id="search-results">
+        {!active ? (
+          <div className="empty-queue">
+            Ask a question above. The search reads whole newsletters, so it finds passages that a
+            keyword search would miss.
+          </div>
+        ) : shown.length === 0 ? (
+          <div className="empty-queue">
+            {running
+              ? "Reading the emails. Findings appear here as each batch comes back."
+              : hits.length === 0
+                ? "Nothing in these emails answers that question. Try widening the date range or asking it a different way."
+                : "No findings match this filter."}
+          </div>
+        ) : (
+          shown.map((h) => (
+            <HitCard
+              key={h.id}
+              h={h}
+              onOpenEmail={onOpenEmail}
+              onKeep={() => setKeepHit(h)}
+            />
+          ))
+        )}
+      </main>
+
+      {keepHit && active && (
+        <KeepHitPrompt
+          hit={keepHit}
+          categories={categories}
+          onAddCategory={onAddCategory}
+          onClose={() => setKeepHit(null)}
+          onSave={async (body) => {
+            const out = await api.keepHit(active.id, keepHit.id, body);
+            setActive((prev) =>
+              prev
+                ? { ...prev, hits: prev.hits.map((h) => (h.id === out.hit.id ? out.hit : h)) }
+                : prev,
+            );
+            onKept(out.candidate);
+            setKeepHit(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function HitCard({
+  h,
+  onOpenEmail,
+  onKeep,
+}: {
+  h: SearchHit;
+  onOpenEmail: (id: number, excerpt: string) => void;
+  onKeep: () => void;
+}) {
+  return (
+    <article className={`hit-card ${h.relevance === "direct" ? "is-direct" : ""}`}>
+      <div className="card-top">
+        <div>
+          <span className={`badge ${h.relevance === "direct" ? "hit-direct" : "hit-related"}`}>
+            {relevanceLabel(h.relevance)}
+          </span>
+          {h.candidate_id ? (
+            <span className="badge important-flag">Added to marked items</span>
+          ) : null}
+        </div>
+        {h.candidate_id ? null : (
+          <button type="button" className="btn-primary" onClick={onKeep}>
+            Add to marked items
+          </button>
+        )}
+      </div>
+      <h2>{h.title || "Finding"}</h2>
+      <p className="meta">
+        {h.email_date || h.date_iso} ·{" "}
+        <button type="button" className="linkish" onClick={() => onOpenEmail(h.email_id, h.excerpt)}>
+          {h.email_title || `Email ${h.email_id}`}
+        </button>
+      </p>
+      <blockquote className="excerpt">
+        <MarkdownInline text={h.excerpt} />
+      </blockquote>
+      {h.why_relevant && (
+        <p className="hit-why">
+          <span className="hit-why-label">Why this matters</span>
+          {h.why_relevant}
+        </p>
+      )}
+    </article>
+  );
+}
+
+const KEEP_TAGS: { value: string; label: string; slug: string }[] = [
+  { value: "HIGH PRIORITY RESEARCH AREA", label: "High priority", slug: "high-priority" },
+  { value: "STRONG CANDIDATE", label: "Strong", slug: "strong" },
+  { value: "POSSIBLE CANDIDATE", label: "Possible", slug: "possible" },
+];
+
+function KeepHitPrompt({
+  hit,
+  categories,
+  onAddCategory,
+  onSave,
+  onClose,
+}: {
+  hit: SearchHit;
+  categories: Category[];
+  onAddCategory: (name: string) => Promise<Category>;
+  onSave: (body: {
+    tag: string;
+    category_id: number;
+    notes: string;
+    important: boolean;
+    shortlisted: boolean;
+  }) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [tag, setTag] = useState("");
+  const [categoryId, setCategoryId] = useState<number | "">("");
+  const [adding, setAdding] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [important, setImportant] = useState(true);
+  const [shortlisted, setShortlisted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+
+  const canSave = Boolean(tag && categoryId && (important || shortlisted) && !busy);
+
+  async function save() {
+    if (!canSave || typeof categoryId !== "number") return;
+    setBusy(true);
+    setLocalError("");
+    try {
+      await onSave({
+        tag,
+        category_id: categoryId,
+        notes: notes.trim(),
+        important,
+        shortlisted,
+      });
+    } catch (e) {
+      setLocalError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="email-backdrop" onClick={onClose} />
+      <div className="comment-modal keep-modal">
+        <h2>Add to marked items</h2>
+        <p className="meta">{hit.title || "This finding"}</p>
+
+        <p className="prompt-category-label">How would you rank it?</p>
+        <div className="segmented keep-tags">
+          {KEEP_TAGS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={tag === opt.value ? "on" : ""}
+              disabled={busy}
+              onClick={() => setTag(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={`prompt-category ${categoryId ? "" : "missing"}`}>
+          <span className="prompt-category-label">
+            {categoryId ? "Category" : "Assign a category"}
+          </span>
+          {adding ? (
+            <NewCategoryForm
+              onSave={async (name) => {
+                const cat = await onAddCategory(name);
+                setCategoryId(cat.id);
+                setAdding(false);
+              }}
+              onCancel={() => setAdding(false)}
+            />
+          ) : (
+            <select
+              value={categoryId}
+              aria-label="Category"
+              disabled={busy}
+              onChange={(e) => {
+                if (e.target.value === "__new__") {
+                  setAdding(true);
+                  return;
+                }
+                setCategoryId(e.target.value ? Number(e.target.value) : "");
+              }}
+            >
+              <option value="">Categorise…</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+              <option value="__new__">+ Add new category…</option>
+            </select>
+          )}
+        </div>
+
+        <div className="keep-marks">
+          <button
+            type="button"
+            className={`btn-important ${important ? "is-on" : ""}`}
+            disabled={busy}
+            onClick={() => setImportant((v) => !v)}
+          >
+            {important ? "Important" : "Mark Important"}
+          </button>
+          <button
+            type="button"
+            className={`btn-shortlist ${shortlisted ? "is-on" : ""}`}
+            disabled={busy}
+            onClick={() => setShortlisted((v) => !v)}
+          >
+            {shortlisted ? "Shortlisted for Probe" : "Shortlist for Probe"}
+          </button>
+        </div>
+
+        <textarea
+          rows={3}
+          value={notes}
+          disabled={busy}
+          placeholder="Why is this worth a probe? (optional)"
+          aria-label="Your comment"
+          onChange={(e) => setNotes(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onClose();
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+          }}
+        />
+        {localError && <p className="err">{localError}</p>}
+        <div className="comment-form-actions">
+          <button type="button" className="btn-primary" disabled={!canSave} onClick={save}>
+            Add to marked items
+          </button>
+          <button type="button" className="btn-quiet" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </>
   );
 }

@@ -155,6 +155,93 @@ class CategoryCreate(BaseModel):
     name: str
 
 
+class Relevance(str, Enum):
+    direct = "direct"
+    related = "related"
+
+
+class SearchFinding(BaseModel):
+    """One relevant passage, as returned by the model for a chunk of emails."""
+
+    email_id: int
+    relevance: Relevance
+    title: str
+    excerpt: str
+    why_relevant: str
+
+
+class SearchFindings(BaseModel):
+    findings: list[SearchFinding] = Field(default_factory=list)
+
+
+class IdeaSearchCreate(BaseModel):
+    question: str
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
+class SearchHitOut(BaseModel):
+    id: int
+    email_id: int
+    relevance: str
+    title: str
+    excerpt: str
+    why_relevant: str
+    email_title: str = ""
+    email_date: str = ""
+    date_iso: str = ""
+    candidate_id: Optional[int] = None
+
+
+class KeepHitIn(BaseModel):
+    tag: str
+    category_id: Optional[int] = None
+    notes: str = ""
+    important: bool = True
+    shortlisted: bool = False
+
+
+class KeepHitOut(BaseModel):
+    hit: SearchHitOut
+    candidate: CandidateOut
+
+
+class IdeaSearchOut(BaseModel):
+    id: int
+    question: str
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    status: str
+    emails_total: int = 0
+    chunks_total: int = 0
+    chunks_done: int = 0
+    chunks_failed: int = 0
+    hits_total: int = 0
+    error: Optional[str] = None
+    created_at: datetime
+    finished_at: Optional[datetime] = None
+    phase: str = ""
+    listed: int = 0
+    new_emails: int = 0
+    skipped: int = 0
+    current: int = 0
+
+
+class IdeaSearchDetailOut(IdeaSearchOut):
+    hits: list[SearchHitOut] = Field(default_factory=list)
+
+
+class SearchPreviewOut(BaseModel):
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    emails: int = 0
+    stored: int = 0
+    will_fetch: int = 0
+    gmail_connected: bool = False
+    gmail_checked: bool = False
+    chunks: int = 0
+
+
 def tag_slug(tag: str) -> str:
     return {
         "HIGH PRIORITY RESEARCH AREA": "high-priority",

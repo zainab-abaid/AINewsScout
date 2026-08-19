@@ -19,6 +19,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4").strip() or "gpt-5.4"
 OPENAI_REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "high").strip() or "high"
 GMAIL_LABEL = os.getenv("GMAIL_LABEL", "AINews").strip() or "AINews"
+
+# Idea search reads the emails in batches of four. An issue of this newsletter
+# runs 55k-110k characters, so four of them land near 80k tokens: a large but
+# comfortable fraction of the model's context, leaving plenty of room for high
+# effort reasoning. The character budget only binds on unusually long issues,
+# where it splits the batch rather than risking a truncated read.
+IDEA_SEARCH_EMAILS_PER_CHUNK = max(
+    1, int(os.getenv("IDEA_SEARCH_EMAILS_PER_CHUNK", "4"))
+)
+IDEA_SEARCH_CHUNK_CHARS = max(
+    20_000, int(os.getenv("IDEA_SEARCH_CHUNK_CHARS", "320000"))
+)
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "").strip()
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "").strip()
 

@@ -10,6 +10,16 @@ def _read_skill(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def idea_search_instructions() -> str:
+    rules = _read_skill("03_idea_search_over_emails.md")
+    return (
+        "Follow the evidence search skill below. Search only the emails given "
+        "in this batch and return structured JSON matching the schema.\n\n"
+        "===== EVIDENCE SEARCH SKILL =====\n\n"
+        f"{rules}\n"
+    )
+
+
 def extractor_instructions() -> str:
     rules = _read_skill("02_single_email_candidate_extractor.md")
     context = _read_skill("01_genie_research_context.md")

@@ -199,6 +199,25 @@ def gmail_service():
     return service
 
 
+def stored_gmail_ids() -> set[str]:
+    with session_scope() as session:
+        return {gid for gid in session.exec(select(Email.gmail_id)).all() if gid}
+
+
+def missing_gmail_count(
+    date_from: Optional[date], date_to: Optional[date]
+) -> int:
+    """How many labelled messages in the range are not stored yet.
+
+    Listing is cheap; the bodies are only downloaded when search or sync
+    actually fetches. Already-stored Gmail ids are skipped, so a wider date
+    range never re-downloads an issue you already have.
+    """
+    ids = list_message_ids(gmail_query(date_from, date_to, get_label()))
+    existing = stored_gmail_ids()
+    return sum(1 for gid in ids if gid not in existing)
+
+
 def gmail_query(date_from: Optional[date], date_to: Optional[date], label: str) -> str:
     parts = [f"label:{label}"]
     if date_from:

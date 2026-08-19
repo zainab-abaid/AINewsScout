@@ -87,9 +87,11 @@ If Connect Gmail is blocked, ask IT to trust this internal OAuth client for Gmai
 
 You can keep reviewing while extraction runs, and reloading the page reattaches to a job that is still going.
 
-The UI has two tabs: **Review** for working through the queue, and **Marked** for everything you kept.
+The UI has three tabs: **Important items extracted from emails** for working through the queue, **Review marked items** for everything you kept, and **Search for ideas** for asking a question across whole newsletters.
 
-## Review
+Emails are permanent. Once a message is synced it stays in `data/probe_scout.sqlite` for good: sync skips anything already stored, and nothing in the app deletes an email. Overwriting an extraction replaces that email's probe ideas, never the email itself, which is why a search can still read newsletters from months ago.
+
+## Important items extracted from emails
 
 - **Filters**: model ranking (high priority / strong / possible) and your own marks. Multi-select.
 - **Categories**: switch categories on or off. Anything you have not switched off stays visible, including categories you add later.
@@ -100,7 +102,7 @@ The UI has two tabs: **Review** for working through the queue, and **Marked** fo
 - Marks are attributed so they stay distinguishable from the model's ranking: **Marked important by user** and **Shortlisted by user**.
 - Excerpts keep the newsletter's links as short clickable labels. Clicking the email title opens the full newsletter as rendered Markdown and scrolls to the passage the excerpt came from, highlighted in yellow. The passage is found by word overlap rather than an exact string, so it still lands correctly when the model wrote its own lead-in or when the excerpt and the body format links differently.
 
-## Marked
+## Review marked items
 
 Everything you marked important or shortlisted, newest first, with your comments.
 
@@ -108,6 +110,34 @@ Everything you marked important or shortlisted, newest first, with your comments
 - Comments are editable in place, each item shows the date you marked it, and the category can be changed or filled in from here too.
 - Unmarking an item removes it from this tab but keeps the comment, so it is still there if you mark the item again.
 - Items marked before this tab existed had no mark date, so they fall back to the date the item was extracted.
+
+## Search for ideas
+
+Extraction asks the same question of every email ("what could become a probe?"). This tab asks *your* question instead, across whole newsletters rather than the excerpts already pulled out of them:
+
+> List all the studies and papers mentioned in the emails that conclude that harnesses affect how well models perform on tasks in different benchmarks.
+
+Type the question, optionally narrow the date range, and click **Search emails**. If the range goes farther back (or forward) than what is already stored, the search lists Gmail first and **downloads only the missing issues**. Anything already in the database is skipped — there is no re-download. Newly pulled emails stay in the database permanently, same as a Sync. Then every email in the range is read, so this finds passages that keyword search misses: a paragraph reporting that scores moved when the agent scaffold changed answers the question above even if it never says "harness".
+
+How it runs:
+
+- Gmail is checked for the date range. Already-stored Gmail ids are skipped; only missing messages are fetched. Connect Gmail first if you want a range that is not already on disk.
+- Emails are packed into batches of four, capped by a character budget so an unusually long issue splits instead of crowding the context. Twelve newsletters is three batches of roughly 60,000–80,000 tokens each.
+- Each batch goes to the same model and reasoning effort as extraction, with the batch and your question, and comes back with quoted passages plus a note on why each one bears on the question.
+- Batches run one after another and results are saved as each one returns, so findings appear while the search is still going. Reloading or switching tabs reattaches to a search in progress.
+- A batch that fails is counted and skipped rather than losing the rest of the search.
+- Expect roughly 1–3 minutes per batch. The panel shows a Gmail download if needed, then which batch is being read and how many findings have landed.
+
+Results look like the review cards: the email title opens the full newsletter and scrolls to the quoted passage, and links inside the quote are preserved even when the model dropped them.
+
+- **Direct answer** means the passage answers the question on its own terms. **Related** means it is genuinely useful but incomplete — the right study without its conclusion, or a claim without a number — and the commentary says what is missing.
+- Filter by relevance, or search within the findings.
+- **Add to marked items** on a finding turns it into a probe candidate: you pick High priority / Strong / Possible (the same ranking the extractor uses), assign a category, optionally comment on why it is probe-worthy, and mark it important and/or shortlist it. It then appears in **Important items extracted from emails** and in **Review marked items**, even if the original extraction never surfaced that passage. If the quote already exists as a candidate, that card is reused rather than duplicated.
+- Past searches are kept and listed under the box, with their findings, so you can reopen or delete them.
+- Deleting a search that is still running stops it. The batch already with the model finishes, then nothing further is sent, so this is also how you cancel a search you did not mean to start.
+- If the model call fails, the panel shows the reason the API gave — "You have no credits remaining", a rate limit, and so on — rather than a raw error dump.
+
+What the model is told to do lives in `skills/03_idea_search_over_emails.md`: quote verbatim from the batch, never invent evidence, attribute every quote to the right email, prefer a borderline find over silence, and return nothing at all when the emails do not answer the question.
 
 ## Re-importing email bodies
 
@@ -125,19 +155,19 @@ It re-downloads each stored message and rewrites `body_md` only. Candidates, cat
 ## Tests
 
 ```bash
-uv run pytest          # backend: link handling, categories, marks and comments, re-import, settings
-cd frontend && npm test # UI filter logic, block parsing and excerpt matching
+uv run pytest          # backend: link handling, categories, marks and comments, re-import, idea search
+cd frontend && npm test # UI filter logic, block parsing, excerpt matching, search results
 ```
 
 ## Layout
 
 ```
-backend/    FastAPI app, Gmail sync, extraction jobs, SQLite models
+backend/    FastAPI app, Gmail sync, extraction and search jobs, SQLite models
 backend/tools/  maintenance commands (email body re-import)
 frontend/   Vite + React review UI
-skills/     extraction prompts (01 research context, 02 single-email extractor)
+skills/     prompts (01 research context, 02 single-email extractor, 03 idea search)
 tests/      backend tests
 data/       local DB and Gmail token, created at runtime (gitignored)
 ```
 
-The extraction behaviour lives in `skills/`, not in the Python code. Edit `skills/02_single_email_candidate_extractor.md` to change what counts as a candidate, and `skills/01_genie_research_context.md` to change the research priorities used for ranking.
+The model's behaviour lives in `skills/`, not in the Python code. Edit `skills/02_single_email_candidate_extractor.md` to change what counts as a candidate, `skills/01_genie_research_context.md` to change the research priorities used for ranking, and `skills/03_idea_search_over_emails.md` to change how the search judges and quotes evidence.

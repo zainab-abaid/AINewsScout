@@ -88,6 +88,53 @@ export type EmailDetail = {
   extraction_error: string | null;
 };
 
+export type SearchHit = {
+  id: number;
+  email_id: number;
+  relevance: string;
+  title: string;
+  excerpt: string;
+  why_relevant: string;
+  email_title: string;
+  email_date: string;
+  date_iso: string;
+  candidate_id: number | null;
+};
+
+export type IdeaSearch = {
+  id: number;
+  question: string;
+  date_from: string | null;
+  date_to: string | null;
+  status: string;
+  emails_total: number;
+  chunks_total: number;
+  chunks_done: number;
+  chunks_failed: number;
+  hits_total: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+  phase: string;
+  listed: number;
+  new_emails: number;
+  skipped: number;
+  current: number;
+};
+
+export type IdeaSearchDetail = IdeaSearch & { hits: SearchHit[] };
+
+export type SearchPreview = {
+  date_from: string | null;
+  date_to: string | null;
+  emails: number;
+  stored: number;
+  will_fetch: number;
+  gmail_connected: boolean;
+  gmail_checked: boolean;
+  chunks: number;
+};
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -141,6 +188,32 @@ export const api = {
     http<SyncPreview>("/api/sync/preview", { method: "POST", body: JSON.stringify(body) }),
   extract: () => http<Job>("/api/extract", { method: "POST", body: JSON.stringify({ pending_only: true }) }),
   job: (id: number) => http<Job>(`/api/jobs/${id}`),
+  searchPreview: (body: { question?: string; date_from?: string; date_to?: string }) =>
+    http<SearchPreview>("/api/searches/preview", {
+      method: "POST",
+      body: JSON.stringify({ question: "", ...body }),
+    }),
+  createSearch: (body: { question: string; date_from?: string; date_to?: string }) =>
+    http<IdeaSearch>("/api/searches", { method: "POST", body: JSON.stringify(body) }),
+  searches: () => http<IdeaSearch[]>("/api/searches"),
+  search: (id: number) => http<IdeaSearchDetail>(`/api/searches/${id}`),
+  keepHit: (
+    searchId: number,
+    hitId: number,
+    body: {
+      tag: string;
+      category_id?: number;
+      notes?: string;
+      important?: boolean;
+      shortlisted?: boolean;
+    },
+  ) =>
+    http<{ hit: SearchHit; candidate: Candidate }>(
+      `/api/searches/${searchId}/hits/${hitId}/keep`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  deleteSearch: (id: number) =>
+    http<{ ok: boolean }>(`/api/searches/${id}`, { method: "DELETE" }),
   activeJob: async () => {
     const res = await fetch("/api/jobs/active", {
       headers: { "Content-Type": "application/json" },

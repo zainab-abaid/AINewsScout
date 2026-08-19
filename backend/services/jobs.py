@@ -3,14 +3,26 @@ from __future__ import annotations
 import json
 import threading
 from datetime import date, datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlmodel import select
 
+from backend.config import IDEA_SEARCH_EMAILS_PER_CHUNK
 from backend.database import session_scope
-from backend.db import Candidate, Email, Job
+from backend.db import Candidate, Email, IdeaSearch, IdeaSearchHit, Job
 from backend.services.extract import dump_raw, extract_candidates
-from backend.services.gmail_sync import fetch_and_store, get_label
+from backend.services.gmail_sync import (
+    fetch_and_store,
+    get_label,
+    gmail_status,
+    missing_gmail_count,
+)
+from backend.services.idea_search import (
+    SearchEmail,
+    chunk_emails,
+    readable_model_error,
+    search_chunk,
+)
 
 DONE_STATUSES = {"done", "no_candidates"}
 PENDING_STATUSES = {"pending", "failed"}
@@ -85,11 +97,21 @@ def _job_copy(job: Job) -> Job:
     )
 
 
+# Filled in at the bottom of the module, once the runners are defined.
+JOB_RUNNERS: dict[str, Callable[[int], None]] = {}
+
+# The sync panel in the UI reattaches to whatever job is active, so a search
+# running in its own tab must not surface there. Searches are tracked by their
+# own record instead.
+PANEL_JOB_KINDS = ["sync", "extract"]
+
+
 def get_active_job() -> Optional[Job]:
     with session_scope() as session:
         job = session.exec(
             select(Job)
             .where(Job.status.in_(["queued", "running"]))
+            .where(Job.kind.in_(PANEL_JOB_KINDS))
             .order_by(Job.id.desc())
         ).first()
         if not job:
@@ -117,7 +139,9 @@ def resume_orphaned_jobs() -> None:
     for job_id, kind in items:
         if job_id in _running:
             continue
-        target = run_sync_job if kind == "sync" else run_extract_job
+        target = JOB_RUNNERS.get(kind)
+        if target is None:
+            continue
         threading.Thread(target=target, args=(job_id,), daemon=True).start()
 
 
@@ -303,6 +327,285 @@ def extract_email_ids(
     return counts
 
 
+def search_emails_in_range(
+    date_from: Optional[date], date_to: Optional[date]
+) -> list[SearchEmail]:
+    """Stored emails a search should read, oldest first."""
+    with session_scope() as session:
+        rows = [
+            e
+            for e in session.exec(select(Email)).all()
+            if e.id is not None and email_in_range(e, date_from, date_to)
+        ]
+        rows.sort(key=lambda e: (e.sent_at or datetime.min, e.id or 0))
+        return [
+            SearchEmail(
+                id=e.id,
+                subject=e.subject,
+                date=_email_day(e) or e.date_raw,
+                body_md=e.body_md,
+            )
+            for e in rows
+        ]
+
+
+def _gmail_connected() -> bool:
+    try:
+        return bool(gmail_status().get("connected"))
+    except Exception:
+        return False
+
+
+def preview_search(
+    date_from: Optional[date], date_to: Optional[date]
+) -> dict[str, Any]:
+    emails = search_emails_in_range(date_from, date_to)
+    stored = len(emails)
+    connected = _gmail_connected()
+    will_fetch = 0
+    gmail_checked = False
+    if connected:
+        try:
+            will_fetch = missing_gmail_count(date_from, date_to)
+            gmail_checked = True
+        except Exception:
+            will_fetch = 0
+    expected = stored + will_fetch
+    if will_fetch:
+        per = IDEA_SEARCH_EMAILS_PER_CHUNK
+        chunks = (expected + per - 1) // per if expected else 0
+    else:
+        chunks = len(chunk_emails(emails))
+    return {
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "emails": expected,
+        "stored": stored,
+        "will_fetch": will_fetch,
+        "gmail_connected": connected,
+        "gmail_checked": gmail_checked,
+        "chunks": chunks,
+    }
+
+
+def _search_exists(search_id: int) -> bool:
+    with session_scope() as session:
+        return session.get(IdeaSearch, search_id) is not None
+
+
+def _finish_search(search_id: int, **fields: Any) -> None:
+    with session_scope() as session:
+        search = session.get(IdeaSearch, search_id)
+        if not search:
+            return
+        for key, value in fields.items():
+            setattr(search, key, value)
+
+
+def run_idea_search_job(job_id: int) -> None:
+    """Search every batch in the range, storing hits as each batch comes back.
+
+    One failing batch does not lose the rest: it is counted and the search
+    carries on, so partial evidence still reaches the user.
+    """
+    _running[job_id] = "idea_search"
+    search_id: Optional[int] = None
+    try:
+        _update_job(job_id, status="running")
+        with session_scope() as session:
+            job = session.get(Job, job_id)
+            payload = json.loads(job.payload_json) if job else {}
+        search_id = payload.get("search_id")
+        with session_scope() as session:
+            search = session.get(IdeaSearch, search_id) if search_id else None
+            if search is None:
+                raise RuntimeError("Search not found")
+            question = search.question
+            date_from = parse_iso_date(search.date_from)
+            date_to = parse_iso_date(search.date_to)
+            search.status = "running"
+            search.error = None
+            # A job resumed after a restart starts its batches again, so clear
+            # anything the earlier attempt stored rather than doubling it up.
+            for old in session.exec(
+                select(IdeaSearchHit).where(IdeaSearchHit.search_id == search_id)
+            ).all():
+                session.delete(old)
+
+        fetch_meta: dict[str, Any] = {}
+        if _gmail_connected():
+            if not _search_exists(search_id):
+                _update_job(
+                    job_id,
+                    status="done",
+                    finished_at=_now(),
+                    progress={"phase": "cancelled"},
+                )
+                return
+            _progress(
+                job_id,
+                {
+                    "phase": "listing",
+                    "stage": "download",
+                    "listed": 0,
+                    "new_emails": 0,
+                    "skipped": 0,
+                },
+            )
+
+            def prog(data: dict[str, Any]) -> None:
+                _progress(job_id, data)
+
+            try:
+                fetch_counts, _new_ids = fetch_and_store(
+                    date_from, date_to, get_label(), prog
+                )
+            except Exception as exc:
+                raise RuntimeError(readable_model_error(exc)) from exc
+            _progress(
+                job_id,
+                {
+                    **fetch_counts,
+                    "phase": "fetched",
+                    "stage": "download",
+                },
+            )
+            if not _search_exists(search_id):
+                _update_job(
+                    job_id,
+                    status="done",
+                    finished_at=_now(),
+                    progress={**fetch_counts, "phase": "cancelled"},
+                )
+                return
+            fetch_meta = {
+                "listed": fetch_counts.get("listed", 0),
+                "new_emails": fetch_counts.get("new_emails", 0),
+                "skipped": fetch_counts.get("skipped", 0),
+            }
+
+        emails = search_emails_in_range(date_from, date_to)
+        if not emails:
+            raise RuntimeError("No emails in that date range after checking Gmail.")
+        chunks = chunk_emails(emails)
+        _finish_search(
+            search_id, emails_total=len(emails), chunks_total=len(chunks)
+        )
+        counts = {
+            "emails_total": len(emails),
+            "chunks_total": len(chunks),
+            "chunks_done": 0,
+            "chunks_failed": 0,
+            "hits": 0,
+            **fetch_meta,
+        }
+        _progress(job_id, {**counts, "phase": "searching", "stage": "search"})
+
+        hits = 0
+        failed = 0
+        last_error = ""
+        cancelled = False
+        for index, chunk in enumerate(chunks):
+            # Deleting a search is how it gets cancelled, so check before paying
+            # for another batch and again before storing what came back.
+            if not _search_exists(search_id):
+                cancelled = True
+                break
+            _progress(
+                job_id,
+                {
+                    **counts,
+                    "phase": "searching",
+                    "stage": "search",
+                    "chunks_done": index,
+                    "chunks_failed": failed,
+                    "hits": hits,
+                    "current": index + 1,
+                    "total": len(chunks),
+                    "subject": chunk[0].subject if chunk else "",
+                },
+            )
+            try:
+                findings = search_chunk(question, chunk)
+            except Exception as exc:
+                failed += 1
+                last_error = readable_model_error(exc)[:2000]
+                _finish_search(search_id, chunks_failed=failed)
+                continue
+            if not _search_exists(search_id):
+                cancelled = True
+                break
+            with session_scope() as session:
+                for finding in findings:
+                    session.add(
+                        IdeaSearchHit(
+                            search_id=search_id,
+                            email_id=finding.email_id,
+                            chunk_index=index,
+                            relevance=finding.relevance.value,
+                            title=finding.title,
+                            excerpt=finding.excerpt,
+                            why_relevant=finding.why_relevant,
+                        )
+                    )
+            hits += len(findings)
+            _finish_search(search_id, chunks_done=index + 1 - failed)
+            _progress(
+                job_id,
+                {
+                    **counts,
+                    "phase": "searching",
+                    "stage": "search",
+                    "chunks_done": index + 1,
+                    "chunks_failed": failed,
+                    "hits": hits,
+                    "current": index + 1,
+                    "total": len(chunks),
+                },
+            )
+
+        if cancelled:
+            _update_job(
+                job_id,
+                status="done",
+                finished_at=_now(),
+                progress={**counts, "phase": "cancelled", "hits": hits},
+            )
+            return
+
+        every_chunk_failed = bool(chunks) and failed == len(chunks)
+        _finish_search(
+            search_id,
+            status="failed" if every_chunk_failed else "done",
+            chunks_done=len(chunks) - failed,
+            chunks_failed=failed,
+            error=last_error if failed else None,
+            finished_at=_now(),
+        )
+        _update_job(
+            job_id,
+            status="failed" if every_chunk_failed else "done",
+            error=last_error if every_chunk_failed else None,
+            finished_at=_now(),
+            progress={
+                **counts,
+                "phase": "done",
+                "chunks_done": len(chunks) - failed,
+                "chunks_failed": failed,
+                "hits": hits,
+            },
+        )
+    except Exception as exc:
+        message = str(exc)[:2000]
+        if search_id:
+            _finish_search(
+                search_id, status="failed", error=message, finished_at=_now()
+            )
+        _update_job(job_id, status="failed", error=message, finished_at=_now())
+    finally:
+        _running.pop(job_id, None)
+
+
 def run_extract_job(job_id: int) -> None:
     _running[job_id] = "extract"
     try:
@@ -411,3 +714,12 @@ def run_sync_job(job_id: int) -> None:
         )
     finally:
         _running.pop(job_id, None)
+
+
+JOB_RUNNERS.update(
+    {
+        "sync": run_sync_job,
+        "extract": run_extract_job,
+        "idea_search": run_idea_search_job,
+    }
+)

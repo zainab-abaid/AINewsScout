@@ -70,6 +70,44 @@ class Job(SQLModel, table=True):
     finished_at: Optional[datetime] = None
 
 
+class IdeaSearch(SQLModel, table=True):
+    """One question asked across the stored emails in a date range."""
+
+    __tablename__ = "idea_searches"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    question: str
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    status: str = Field(default="queued", index=True)
+    job_id: Optional[int] = None
+    emails_total: int = 0
+    chunks_total: int = 0
+    chunks_done: int = 0
+    chunks_failed: int = 0
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=utcnow)
+    finished_at: Optional[datetime] = None
+
+
+class IdeaSearchHit(SQLModel, table=True):
+    """A passage the model considered relevant to a search question."""
+
+    __tablename__ = "idea_search_hits"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    search_id: int = Field(foreign_key="idea_searches.id", index=True)
+    email_id: int = Field(foreign_key="emails.id", index=True)
+    chunk_index: int = 0
+    relevance: str = "related"
+    title: str = ""
+    excerpt: str = ""
+    why_relevant: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    # Set when the user keeps this finding as a probe candidate.
+    candidate_id: Optional[int] = Field(default=None, foreign_key="candidates.id", index=True)
+
+
 class AppSetting(SQLModel, table=True):
     __tablename__ = "settings"
 

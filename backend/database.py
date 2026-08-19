@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.config import DB_PATH, ensure_data_dir
-from backend.db import AppSetting, Category, Candidate, Email, Job  # noqa: F401
+from backend.db import AppSetting, Category, Candidate, Email, IdeaSearch, IdeaSearchHit, Job  # noqa: F401
 from backend.schemas import DEFAULT_CATEGORIES
 
 engine = None
@@ -28,7 +28,10 @@ def get_engine():
 def _add_missing_columns() -> None:
     """`create_all` never alters an existing table, so new nullable columns are
     added here to keep databases from earlier versions usable."""
-    added = {"candidates": {"marked_at": "DATETIME"}}
+    added = {
+        "candidates": {"marked_at": "DATETIME"},
+        "idea_search_hits": {"candidate_id": "INTEGER"},
+    }
     with get_engine().begin() as conn:
         for table, columns in added.items():
             present = {

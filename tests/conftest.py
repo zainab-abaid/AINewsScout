@@ -17,6 +17,7 @@ from sqlmodel import Session, create_engine
 import backend.database as database
 from backend.db import Candidate, Email
 from backend.routers.core import router as core_router
+from backend.routers.search import router as search_router
 
 
 @pytest.fixture()
@@ -65,4 +66,5 @@ def client(engine) -> TestClient:
 
     app = FastAPI()
     app.include_router(core_router, prefix="/api")
+    app.include_router(search_router, prefix="/api")
     return TestClient(app)
