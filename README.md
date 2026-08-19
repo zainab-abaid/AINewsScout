@@ -37,7 +37,6 @@ Then open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on `12
 
 `run_dev.sh` creates the Python environment with `uv`, installs frontend packages on first run, and starts both servers.
 
-```
 
 High reasoning on long newsletters takes roughly 2–3 minutes per email. Lower `OPENAI_REASONING_EFFORT` to `medium` if you want faster, shallower extraction.
 
