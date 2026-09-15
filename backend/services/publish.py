@@ -416,12 +416,17 @@ def publish_snapshot() -> str:
     html = html.replace("__JSON_DATA__", json_blob)
 
     clone = _ensure_clone()
-    out_path = clone / "index.html"
+    # GitHub Pages is deployed from ./site (see .github/workflows/pages.yml).
+    # Writing the snapshot at the repo root updates git but not the live page.
+    site_dir = clone / "site"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    out_path = site_dir / "index.html"
     out_path.write_text(html, encoding="utf-8")
+    (site_dir / ".nojekyll").touch()
 
     _run(["git", "config", "user.email", "publish@ainews-scout.local"], cwd=clone)
     _run(["git", "config", "user.name", "AINews Scout"], cwd=clone)
-    _run(["git", "add", "index.html"], cwd=clone)
+    _run(["git", "add", "site/index.html", "site/.nojekyll"], cwd=clone)
 
     # Only commit if there are actual changes.
     status = _run(["git", "status", "--porcelain"], cwd=clone)
@@ -432,4 +437,4 @@ def publish_snapshot() -> str:
         )
         _run(["git", "push", "origin", "main"], cwd=clone)
 
-    return "https://zainab-abaid.github.io/ainews_public_view/"
+    return "https://redesigned-adventure-ee5lq4y.pages.github.io/"
