@@ -857,34 +857,34 @@ export default function App() {
               <span className="filter-count">{mainCards.length} shown</span>
             </div>
             <div className="keyword-filter-row">
-              <label className="keyword-scope">
-                <input
-                  type="checkbox"
-                  checked={searchAllDb}
-                  onChange={(e) => setSearchAllDb(e.target.checked)}
-                />
-                Search all candidates in the database
-              </label>
-              <p className="keyword-filter-label">
-                {searchAllDb
-                  ? "Keyword search (case-insensitive) across every extracted candidate in the database — topic, idea, snippet, and title. You can mark and process matches like the normal list."
-                  : "Keyword search (case-insensitive) over currently displayed results only — narrows the list already shown by the filters above (topic, idea, snippet, title)."}
-              </p>
-              <p className="keyword-filter-hint">
-                For semantic search over full newsletters, go to the{" "}
-                <button
-                  type="button"
-                  className="linkish"
-                  onClick={() => {
-                    setOpenMenu(null);
-                    setView("search");
-                  }}
-                >
-                  Semantic search
-                </button>{" "}
-                tab.
-              </p>
+              <div className="keyword-filter-heading">
+                <h3 className="keyword-filter-title">Keyword Search</h3>
+                <span className="info-tip">
+                  <button
+                    type="button"
+                    className="info-tip-btn"
+                    aria-label="About keyword search"
+                  >
+                    i
+                  </button>
+                  <span className="info-tip-bubble" role="tooltip">
+                    By default, keyword search only filters the items currently displayed
+                    by the filters above (case-insensitive match on topic, idea, snippet,
+                    and title). Tick “Search all candidates in the database” to run the
+                    same keyword search over every extracted candidate in the database.
+                    For semantic search over full newsletters, use the Semantic search tab.
+                  </span>
+                </span>
+              </div>
               <div className="keyword-filter-controls">
+                <label className="keyword-scope">
+                  <input
+                    type="checkbox"
+                    checked={searchAllDb}
+                    onChange={(e) => setSearchAllDb(e.target.checked)}
+                  />
+                  Search all candidates in the database
+                </label>
                 <input
                   type="search"
                   placeholder="Filter by topic, idea, snippet, or title…"
