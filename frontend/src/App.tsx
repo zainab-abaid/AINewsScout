@@ -17,6 +17,7 @@ import { MarkdownBody, MarkdownInline } from "./markdown";
 import {
   UNCATEGORISED,
   allCategoriesOn,
+  categoryKey,
   filterCandidates,
   filterMarkedCandidates,
   filtersAreDefault,
@@ -115,6 +116,27 @@ function formatMarkedDate(iso: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+function formatOverviewDate(iso: string) {
+  if (!iso) return "";
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return new Date(ms).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function countByCategory(candidates: Candidate[]): Record<string, number> {
+  const counts: Record<string, number> = { [UNCATEGORISED]: 0 };
+  for (const c of candidates) {
+    if (c.deleted) continue;
+    const key = categoryKey(c.category_id);
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
 }
 
 function truncate(text: string, n = 80) {
@@ -305,6 +327,7 @@ function CommentDisplay({ c, onEdit }: { c: Candidate; onEdit: () => void }) {
   if (c.notes) {
     return (
       <div className="comment">
+        <p className="field-label">User comment:</p>
         <p className="comment-text">{c.notes}</p>
         <button type="button" className="linkish" onClick={onEdit}>
           Edit comment
@@ -411,7 +434,7 @@ function CheckMenu({
 }
 
 export default function App() {
-  const [, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
@@ -619,47 +642,230 @@ export default function App() {
 
   const showJob = job && job.id !== dismissedJobId;
   const markedCount = useMemo(() => candidates.filter(isMarked).length, [candidates]);
+  const categoryCounts = useMemo(() => countByCategory(candidates), [candidates]);
+  const summaryCounts = useMemo(() => {
+    let important = 0;
+    let shortlisted = 0;
+    let processed = 0;
+    let unprocessed = 0;
+    for (const c of candidates) {
+      if (c.deleted) continue;
+      if (c.important) important += 1;
+      if (c.shortlisted) shortlisted += 1;
+      if (c.important || c.shortlisted) processed += 1;
+      else unprocessed += 1;
+    }
+    return { important, shortlisted, processed, unprocessed };
+  }, [candidates]);
   const commentCandidate = commentFor
     ? candidates.find((c) => c.id === commentFor) ?? null
     : null;
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <h1>AI News Newsletter Explorer</h1>
-        </div>
-        <div className="header-right">
-          <PublishControl status={publishStatus} onPublish={startPublish} />
-          <InboxStatus settings={settings} />
-        </div>
-      </header>
+      <div className="app-chrome">
+        <header className="app-header">
+          <div>
+            <h1>AI News Newsletter Explorer</h1>
+          </div>
+          <div className="header-right">
+            <PublishControl status={publishStatus} onPublish={startPublish} />
+            <InboxStatus settings={settings} />
+          </div>
+        </header>
 
-      <nav className="tabs" role="tablist" aria-label="Sections">
-        {TABS.map((tab) => {
-          const count = tab.id === "marked" ? markedCount : 0;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={view === tab.id}
-              className={`tab ${view === tab.id ? "on" : ""}`}
-              onClick={() => {
-                setOpenMenu(null);
-                setView(tab.id);
-              }}
-            >
-              <span className="tab-label">
-                {tab.label}
-                {count ? <span className="tab-count">{count}</span> : null}
+        <nav className="tabs" role="tablist" aria-label="Sections">
+          {TABS.map((tab) => {
+            const count = tab.id === "marked" ? markedCount : 0;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={view === tab.id}
+                className={`tab ${view === tab.id ? "on" : ""}`}
+                onClick={() => {
+                  setOpenMenu(null);
+                  setView(tab.id);
+                }}
+              >
+                <span className="tab-label">
+                  {tab.label}
+                  {count ? <span className="tab-count">{count}</span> : null}
+                </span>
+                <span className="tab-sub">{tab.sub}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {view === "review" && (
+          <>
+            <div className="overview-strip">
+              <span className="overview-range">
+                {stats?.date_from && stats?.date_to
+                  ? `Available newsletters: ${formatOverviewDate(stats.date_from)} to ${formatOverviewDate(stats.date_to)}`
+                  : stats?.emails
+                    ? `Available newsletters: ${stats.emails} in the database`
+                    : "Available newsletters: none yet"}
               </span>
-              <span className="tab-sub">{tab.sub}</span>
-            </button>
-          );
-        })}
-      </nav>
+              <span className="overview-stat">
+                Shortlisted for probes: <strong>{summaryCounts.shortlisted}</strong>
+              </span>
+              <span className="overview-stat">
+                Marked important: <strong>{summaryCounts.important}</strong>
+              </span>
+              <span className="overview-stat">
+                Processed: <strong>{summaryCounts.processed}</strong>
+              </span>
+              <span className="overview-stat">
+                Unprocessed: <strong>{summaryCounts.unprocessed}</strong>
+              </span>
+            </div>
 
+            <JobPanel
+              settings={settings}
+              job={showJob ? job : null}
+              busy={jobBusy}
+              error={error}
+              now={now}
+              onSync={async () => {
+                try {
+                  await requestSync();
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+              onDismiss={() => job && setDismissedJobId(job.id)}
+            />
+
+            <div className="filter-bar">
+              <CheckMenu
+                id="filters"
+                label="Filters"
+                summary={
+                  tagFilters.size + markFilters.size
+                    ? String(tagFilters.size + markFilters.size)
+                    : undefined
+                }
+                openId={openMenu}
+                setOpenId={setOpenMenu}
+              >
+                <p className="menu-heading">Model ranking</p>
+                {TAG_OPTIONS.map((opt) => (
+                  <label key={opt.id} className="menu-check">
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.has(opt.id)}
+                      onChange={() => setTagFilters((prev) => toggleInSet(prev, opt.id))}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+                <p className="menu-heading">Your marks</p>
+                {MARK_OPTIONS.map((opt) => (
+                  <label key={opt.id} className="menu-check">
+                    <input
+                      type="checkbox"
+                      checked={markFilters.has(opt.id)}
+                      onChange={() => setMarkFilters((prev) => toggleInSet(prev, opt.id))}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </CheckMenu>
+              <CheckMenu
+                id="categories"
+                label="Categories"
+                summary={
+                  allCategoriesOn(hiddenCats, categories)
+                    ? undefined
+                    : String(onCategoryCount(hiddenCats, categories))
+                }
+                openId={openMenu}
+                setOpenId={setOpenMenu}
+              >
+                <label className="menu-check">
+                  <input
+                    type="checkbox"
+                    checked={allCategoriesOn(hiddenCats, categories)}
+                    onChange={(e) =>
+                      setHiddenCats(
+                        e.target.checked ? showAllCategories() : hideAllCategories(categories),
+                      )
+                    }
+                  />
+                  All categories
+                </label>
+                {categories.map((cat) => (
+                  <label key={cat.id} className="menu-check">
+                    <input
+                      type="checkbox"
+                      checked={isCategoryOn(hiddenCats, String(cat.id))}
+                      onChange={(e) =>
+                        setHiddenCats((prev) =>
+                          toggleCategoryVisibility(prev, String(cat.id), e.target.checked),
+                        )
+                      }
+                    />
+                    {cat.name} ({categoryCounts[String(cat.id)] || 0})
+                  </label>
+                ))}
+                <NewCategoryForm onSave={addCategory} />
+              </CheckMenu>
+              <label className="unprocessed-toggle">
+                <input
+                  type="checkbox"
+                  checked={unprocessedOnly}
+                  onChange={(e) => setUnprocessedOnly(e.target.checked)}
+                />
+                Show unprocessed items only
+              </label>
+              <label className="date-mini">
+                From
+                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </label>
+              <label className="date-mini">
+                To
+                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </label>
+              <button
+                type="button"
+                className="btn-quiet"
+                onClick={() => {
+                  setUnprocessedOnly(true);
+                  setTagFilters(new Set());
+                  setMarkFilters(new Set());
+                  setSearch("");
+                  setDateFrom("");
+                  setDateTo("");
+                  setHiddenCats(showAllCategories());
+                }}
+              >
+                Clear
+              </button>
+              <span className="filter-count">{mainCards.length} shown</span>
+            </div>
+            <div className="keyword-filter-row">
+              <label className="keyword-filter">
+                <span className="keyword-filter-label">
+                  Keyword search over the candidate list on this tab (case-insensitive). Filters
+                  items already loaded from the database — not full newsletter text, and not
+                  semantic search.
+                </span>
+                <input
+                  type="search"
+                  placeholder="Filter by topic, idea, snippet, or title…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </label>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="app-scroll">
       {view === "search" ? (
         <SearchView
           onOpenEmail={openEmail}
@@ -681,6 +887,7 @@ export default function App() {
         <MarkedView
           candidates={candidates}
           categories={categories}
+          categoryCounts={categoryCounts}
           error={error}
           onPatch={patch}
           onAddCategory={addCategory}
@@ -690,148 +897,6 @@ export default function App() {
         />
       ) : (
         <>
-          <JobPanel
-            settings={settings}
-            job={showJob ? job : null}
-            busy={jobBusy}
-            error={error}
-            now={now}
-            onSync={async () => {
-              try {
-                await requestSync();
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-            onDismiss={() => job && setDismissedJobId(job.id)}
-          />
-
-          <div className="filter-bar">
-            <CheckMenu
-              id="filters"
-              label="Filters"
-              summary={
-                tagFilters.size + markFilters.size
-                  ? String(tagFilters.size + markFilters.size)
-                  : undefined
-              }
-              openId={openMenu}
-              setOpenId={setOpenMenu}
-            >
-              <p className="menu-heading">Model ranking</p>
-              {TAG_OPTIONS.map((opt) => (
-                <label key={opt.id} className="menu-check">
-                  <input
-                    type="checkbox"
-                    checked={tagFilters.has(opt.id)}
-                    onChange={() => setTagFilters((prev) => toggleInSet(prev, opt.id))}
-                  />
-                  {opt.label}
-                </label>
-              ))}
-              <p className="menu-heading">Your marks</p>
-              {MARK_OPTIONS.map((opt) => (
-                <label key={opt.id} className="menu-check">
-                  <input
-                    type="checkbox"
-                    checked={markFilters.has(opt.id)}
-                    onChange={() => setMarkFilters((prev) => toggleInSet(prev, opt.id))}
-                  />
-                  {opt.label}
-                </label>
-              ))}
-            </CheckMenu>
-            <CheckMenu
-              id="categories"
-              label="Categories"
-              summary={
-                allCategoriesOn(hiddenCats, categories)
-                  ? undefined
-                  : String(onCategoryCount(hiddenCats, categories))
-              }
-              openId={openMenu}
-              setOpenId={setOpenMenu}
-            >
-              <label className="menu-check">
-                <input
-                  type="checkbox"
-                  checked={allCategoriesOn(hiddenCats, categories)}
-                  onChange={(e) =>
-                    setHiddenCats(
-                      e.target.checked ? showAllCategories() : hideAllCategories(categories),
-                    )
-                  }
-                />
-                All categories
-              </label>
-              <label className="menu-check">
-                <input
-                  type="checkbox"
-                  checked={isCategoryOn(hiddenCats, UNCATEGORISED)}
-                  onChange={(e) =>
-                    setHiddenCats((prev) =>
-                      toggleCategoryVisibility(prev, UNCATEGORISED, e.target.checked),
-                    )
-                  }
-                />
-                Uncategorised
-              </label>
-              {categories.map((cat) => (
-                <label key={cat.id} className="menu-check">
-                  <input
-                    type="checkbox"
-                    checked={isCategoryOn(hiddenCats, String(cat.id))}
-                    onChange={(e) =>
-                      setHiddenCats((prev) =>
-                        toggleCategoryVisibility(prev, String(cat.id), e.target.checked),
-                      )
-                    }
-                  />
-                  {cat.name}
-                </label>
-              ))}
-              <NewCategoryForm onSave={addCategory} />
-            </CheckMenu>
-            <label className="unprocessed-toggle">
-              <input
-                type="checkbox"
-                checked={unprocessedOnly}
-                onChange={(e) => setUnprocessedOnly(e.target.checked)}
-              />
-              Show unprocessed items only
-            </label>
-            <input
-              type="search"
-              placeholder="Search topic, idea, excerpt, title…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <label className="date-mini">
-              From
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-            </label>
-            <label className="date-mini">
-              To
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-            </label>
-            <button
-              type="button"
-              className="btn-quiet"
-              onClick={() => {
-                setUnprocessedOnly(true);
-                setTagFilters(new Set());
-                setMarkFilters(new Set());
-                setSearch("");
-                setDateFrom("");
-                setDateTo("");
-                setHiddenCats(showAllCategories());
-              }}
-            >
-              Clear
-            </button>
-            <span className="filter-count">{mainCards.length} shown</span>
-          </div>
-
           {processedCards.length > 0 && (
             <details className="processed-panel">
               <summary>
@@ -931,6 +996,7 @@ export default function App() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1218,10 +1284,16 @@ function CandidateCard({
           {c.email_title}
         </button>
       </p>
-      <p className="idea">{c.main_idea}</p>
-      <blockquote className="excerpt">
-        <MarkdownInline text={c.excerpt} />
-      </blockquote>
+      <div className="field-block">
+        <p className="field-label">AI News snippet:</p>
+        <blockquote className="excerpt">
+          <MarkdownInline text={c.excerpt} />
+        </blockquote>
+      </div>
+      <div className="field-block">
+        <p className="field-label">Analyzer agent comment:</p>
+        <p className="idea">{c.main_idea}</p>
+      </div>
       <CommentDisplay c={c} onEdit={() => onComment(c.id)} />
     </article>
   );
@@ -1259,7 +1331,16 @@ function MarkedRow({
           {c.email_title}
         </button>
       </p>
-      <p className="idea">{c.main_idea}</p>
+      <div className="field-block">
+        <p className="field-label">AI News snippet:</p>
+        <blockquote className="excerpt">
+          <MarkdownInline text={c.excerpt} />
+        </blockquote>
+      </div>
+      <div className="field-block">
+        <p className="field-label">Analyzer agent comment:</p>
+        <p className="idea">{c.main_idea}</p>
+      </div>
       {editing ? (
         <CommentBox
           value={c.notes}
@@ -1307,6 +1388,7 @@ const MARK_VIEWS: { id: MarkView; label: string }[] = [
 function MarkedView({
   candidates,
   categories,
+  categoryCounts,
   error,
   onPatch,
   onAddCategory,
@@ -1316,6 +1398,7 @@ function MarkedView({
 }: {
   candidates: Candidate[];
   categories: Category[];
+  categoryCounts: Record<string, number>;
   error: string;
   onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
   onAddCategory: (name: string) => Promise<Category>;
@@ -1370,18 +1453,6 @@ function MarkedView({
             />
             All categories
           </label>
-          <label className="menu-check">
-            <input
-              type="checkbox"
-              checked={isCategoryOn(hiddenCats, UNCATEGORISED)}
-              onChange={(e) =>
-                setHiddenCats((prev) =>
-                  toggleCategoryVisibility(prev, UNCATEGORISED, e.target.checked),
-                )
-              }
-            />
-            Uncategorised
-          </label>
           {categories.map((cat) => (
             <label key={cat.id} className="menu-check">
               <input
@@ -1393,17 +1464,11 @@ function MarkedView({
                   )
                 }
               />
-              {cat.name}
+              {cat.name} ({categoryCounts[String(cat.id)] || 0})
             </label>
           ))}
           <NewCategoryForm onSave={onAddCategory} />
         </CheckMenu>
-        <input
-          type="search"
-          placeholder="Search topic, idea, comment, title…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
         <button
           type="button"
           className="btn-quiet"
@@ -1416,6 +1481,20 @@ function MarkedView({
           Clear
         </button>
         <span className="filter-count">{rows.length} shown</span>
+      </div>
+      <div className="keyword-filter-row">
+        <label className="keyword-filter">
+          <span className="keyword-filter-label">
+            Keyword search over the candidate list on this tab (case-insensitive). Filters items
+            already loaded from the database — not full newsletter text, and not semantic search.
+          </span>
+          <input
+            type="search"
+            placeholder="Filter by topic, idea, comment, or title…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
       </div>
 
       <main id="marked-list">
