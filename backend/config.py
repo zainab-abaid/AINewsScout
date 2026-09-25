@@ -52,6 +52,11 @@ IMAP_SYNC_HOUR = max(0, min(23, int(os.getenv("IMAP_SYNC_HOUR", "6") or "6")))
 API_HOST = "127.0.0.1"
 API_PORT = int(os.getenv("PORT", "8000"))
 
+# Access tokens for hosted / shared use. Empty = that role cannot unlock.
+# Viewer needs no token. Admin token also grants analyst powers.
+ANALYST_TOKEN = os.getenv("ANALYST_TOKEN", "").strip()
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)

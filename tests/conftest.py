@@ -14,10 +14,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine
 
+import backend.auth as auth
 import backend.database as database
 from backend.db import Candidate, Email
+from backend.routers.admin import router as admin_router
 from backend.routers.core import router as core_router
 from backend.routers.search import router as search_router
+
+TEST_ANALYST_TOKEN = "test-analyst-token"
+TEST_ADMIN_TOKEN = "test-admin-token"
 
 
 @pytest.fixture()
@@ -38,7 +43,9 @@ def engine(db_path: Path):
 
 
 @pytest.fixture()
-def client(engine) -> TestClient:
+def client(engine, monkeypatch) -> TestClient:
+    monkeypatch.setattr(auth, "ANALYST_TOKEN", TEST_ANALYST_TOKEN)
+    monkeypatch.setattr(auth, "ADMIN_TOKEN", TEST_ADMIN_TOKEN)
     database.init_db()
 
     with Session(engine) as session:
@@ -67,4 +74,10 @@ def client(engine) -> TestClient:
     app = FastAPI()
     app.include_router(core_router, prefix="/api")
     app.include_router(search_router, prefix="/api")
-    return TestClient(app)
+    app.include_router(admin_router, prefix="/api")
+
+    # Existing mark/category tests act as an analyst by default.
+    return TestClient(
+        app,
+        headers={"X-Access-Token": TEST_ANALYST_TOKEN},
+    )

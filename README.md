@@ -9,9 +9,45 @@ Each person clones the repo and runs it locally. Emails, probe ideas, and your m
 | Data | Location |
 | --- | --- |
 | Emails, probe candidates, your marks, categories, job progress | `data/probe_scout.sqlite` (created on first run, gitignored) |
-| OpenAI key, IMAP inbox credentials | `.env` (gitignored) |
+| Admin overrides for research priorities / past probes / not-useful | Same SQLite DB (`AppSetting`); skill file is the fallback default |
+| OpenAI key, IMAP inbox credentials, role tokens | `.env` (gitignored) |
 
 Nothing in `data/` or `.env` is ever committed. Historic emails already in the database stay there permanently — sync only adds new messages.
+
+### Skills vs admin edits
+
+Committed files under `skills/` are the **defaults** (and versioned documentation of the extractor behaviour). When an admin saves research priorities, past probes, or the not-useful list in the Admin tab, those values are stored in the database and injected into new extraction prompts. **The skill files on disk are not rewritten**, so deploys and git pulls do not wipe admin edits, and you can still diff the original skill.
+
+**Admin changes never re-analyse old newsletters** and never wipe marks or comments. New categories and deprecated categories apply to **new extractions only**; old candidates keep their existing category. There is no admin “delete historic marks” path yet.
+
+### Roles
+
+| Role | Token | Can do |
+| --- | --- | --- |
+| Viewer (default) | none | Browse candidates, marked items, and semantic search |
+| Analyst | `ANALYST_TOKEN` | Mark / comment / categorise (existing categories), sync, extract, publish, keep search hits |
+| Admin | `ADMIN_TOKEN` | Everything analyst can, plus Admin tab (research context + add/deprecate categories) |
+
+The UI loads as **viewer**. Use **Sign in** in the header and paste the matching token from `.env`.
+
+### Env vs config, and hosting
+
+Use **environment variables** (via `.env` locally, or the host’s secret store in production) — not a committed config file — for `OPENAI_API_KEY`, IMAP credentials, and role tokens. `.env` is gitignored so tokens are not pushed to GitHub.
+
+On a host (Railway, Fly, Render, a VM, etc.):
+
+- Set the same variables in the platform’s **secrets / environment** UI; do not bake them into the image or repo.
+- Restrict who can read the host dashboard; rotate tokens if someone leaves.
+- Prefer HTTPS and keep the API off the public internet if only a small team needs write access (or put it behind your org VPN / SSO later).
+- A `.env` file on a server is only as safe as filesystem permissions and who can SSH in — platform secrets are usually better once you host.
+
+Generate tokens with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Put them in `.env` as `ANALYST_TOKEN` and `ADMIN_TOKEN` (see `.env.example`).
 
 ## Prerequisites
 
@@ -67,6 +103,8 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on `127.0.0
 | `IMAP_ALLOWED_FROM` | Comma-separated From filters (only these messages are ingested) |
 | `IMAP_SYNC_ENABLED` | `1` to enable auto pull (default) |
 | `IMAP_SYNC_HOUR` | Local hour `0–23` for the daily pull while the API is running (default `6`) |
+| `ANALYST_TOKEN` | Shared secret for analyst sign-in (marks, sync, extract) |
+| `ADMIN_TOKEN` | Shared secret for admin sign-in (research context + taxonomy) |
 
 Optional smoke test (does not need the UI):
 
@@ -84,7 +122,7 @@ uv run python -m backend.tools.test_imap_pull --store  # write new matches to th
 
 ## Application features
 
-The UI has three tabs: **Important items extracted from emails**, **Review marked items**, and **Search for ideas**.
+The UI has four tabs when signed in as admin: **Important items extracted from emails**, **Review marked items**, **Semantic search**, and **Admin**. Viewers and analysts see the first three.
 
 ### Important items extracted from emails
 
@@ -107,7 +145,11 @@ Ask your own question across whole newsletters already in the database (historic
 - Findings can be **Add to marked items** as probe candidates.
 - Past searches are reopenable; deleting a running search cancels it.
 
-Prompts live in `skills/` (`01` research context, `02` single-email extractor, `03` idea search).
+Prompts live in `skills/` (`01` research context default, `02` single-email extractor, `03` idea search). Admins override the research-context sections in the database without editing those files.
+
+### Admin
+
+Edit priority research areas, past probes, and the not-useful list; add or deprecate categories. The UI warns that changes apply to **new** newsletters only.
 
 ## Layout
 

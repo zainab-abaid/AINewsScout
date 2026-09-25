@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
+  getStoredToken,
+  setStoredToken,
+  type AuthStatus,
   type Candidate,
   type Category,
   type EmailDetail,
@@ -8,6 +11,9 @@ import {
   type IdeaSearchDetail,
   type Job,
   type PublishStatus,
+  type ResearchArea,
+  type ResearchContext,
+  type Role,
   type SearchHit,
   type SearchPreview,
   type SettingsStatus,
@@ -51,9 +57,9 @@ const TAG_OPTIONS: { id: TagFilter; label: string }[] = [
   { id: "possible", label: "Possible" },
 ];
 
-type TabId = "review" | "marked" | "search";
+type TabId = "review" | "marked" | "search" | "admin";
 
-const TABS: { id: TabId; label: string; sub: string }[] = [
+const TABS: { id: TabId; label: string; sub: string; adminOnly?: boolean }[] = [
   {
     id: "review",
     label: "Important items extracted from emails",
@@ -68,6 +74,12 @@ const TABS: { id: TabId; label: string; sub: string }[] = [
     id: "search",
     label: "Semantic search",
     sub: "Ask a question across full newsletters",
+  },
+  {
+    id: "admin",
+    label: "Admin",
+    sub: "Research context and categories",
+    adminOnly: true,
   },
 ];
 
@@ -268,21 +280,36 @@ function CommentBox({
   );
 }
 
-/** Category dropdown that can also create a category on the spot. */
+/** Category dropdown that can also create a category on the spot (admin). */
 function CategoryPicker({
   c,
   categories,
   onPatch,
   onAddCategory,
+  canEdit = true,
+  canAdmin = false,
 }: {
   c: Candidate;
   categories: Category[];
   onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
   onAddCategory: (name: string) => Promise<Category>;
+  canEdit?: boolean;
+  canAdmin?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
+  const options = categories.filter(
+    (cat) => !cat.deprecated || cat.id === c.category_id,
+  );
 
-  if (adding) {
+  if (!canEdit) {
+    return (
+      <span className="category-readonly" title={c.category_name || "Uncategorised"}>
+        {c.category_name || "Uncategorised"}
+      </span>
+    );
+  }
+
+  if (adding && canAdmin) {
     return (
       <NewCategoryForm
         onSave={async (name) => {
@@ -312,30 +339,41 @@ function CategoryPicker({
       }}
     >
       <option value="">Categorise…</option>
-      {categories.map((cat) => (
+      {options.map((cat) => (
         <option key={cat.id} value={cat.id}>
           {cat.name}
+          {cat.deprecated ? " (deprecated)" : ""}
         </option>
       ))}
-      <option value="__new__">+ Add new category…</option>
+      {canAdmin && <option value="__new__">+ Add new category…</option>}
     </select>
   );
 }
 
 /** The saved comment, with a way into the editor. */
-function CommentDisplay({ c, onEdit }: { c: Candidate; onEdit: () => void }) {
+function CommentDisplay({
+  c,
+  onEdit,
+  canEdit = true,
+}: {
+  c: Candidate;
+  onEdit: () => void;
+  canEdit?: boolean;
+}) {
   if (c.notes) {
     return (
       <div className="comment">
         <p className="field-label">User comment:</p>
         <p className="comment-text">{c.notes}</p>
-        <button type="button" className="linkish" onClick={onEdit}>
-          Edit comment
-        </button>
+        {canEdit && (
+          <button type="button" className="linkish" onClick={onEdit}>
+            Edit comment
+          </button>
+        )}
       </div>
     );
   }
-  if (!isMarked(c)) return null;
+  if (!canEdit || !isMarked(c)) return null;
   return (
     <button type="button" className="linkish add-comment" onClick={onEdit}>
       Add a comment
@@ -355,6 +393,7 @@ function CommentPrompt({
   onAddCategory,
   onSave,
   onClose,
+  canAdmin = false,
 }: {
   c: Candidate;
   categories: Category[];
@@ -362,6 +401,7 @@ function CommentPrompt({
   onAddCategory: (name: string) => Promise<Category>;
   onSave: (text: string) => Promise<unknown>;
   onClose: () => void;
+  canAdmin?: boolean;
 }) {
   return (
     <>
@@ -383,6 +423,7 @@ function CommentPrompt({
             categories={categories}
             onPatch={onPatch}
             onAddCategory={onAddCategory}
+            canAdmin={canAdmin}
           />
         </div>
 
@@ -439,6 +480,9 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [view, setView] = useState<TabId>("review");
+  const [role, setRole] = useState<Role>("viewer");
+  const [authMeta, setAuthMeta] = useState<AuthStatus | null>(null);
+  const [signInOpen, setSignInOpen] = useState(false);
   const [unprocessedOnly, setUnprocessedOnly] = useState(true);
   const [tagFilters, setTagFilters] = useState<Set<TagFilter>>(new Set());
   const [markFilters, setMarkFilters] = useState<Set<MarkFilter>>(new Set());
@@ -478,6 +522,13 @@ export default function App() {
       setError((e as Error).message);
     }
     try {
+      const auth = await api.authStatus();
+      setAuthMeta(auth);
+      setRole(auth.role);
+    } catch {
+      /* ignore */
+    }
+    try {
       const active = await api.activeJob();
       if (active && (active.status === "queued" || active.status === "running")) {
         setJob((prev) => prev ?? active);
@@ -486,6 +537,43 @@ export default function App() {
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    // Restore session token role on first paint.
+    if (!getStoredToken()) return;
+    api
+      .authStatus()
+      .then((auth) => {
+        setAuthMeta(auth);
+        setRole(auth.role);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const canEdit = role === "analyst" || role === "admin";
+  const canAdmin = role === "admin";
+
+  async function handleUnlock(token: string) {
+    const auth = await api.unlock(token);
+    setStoredToken(token.trim());
+    setAuthMeta(auth);
+    setRole(auth.role);
+    setSignInOpen(false);
+    setError("");
+  }
+
+  function handleSignOut() {
+    setStoredToken("");
+    setRole("viewer");
+    if (view === "admin") setView("review");
+    api
+      .authStatus()
+      .then((auth) => {
+        setAuthMeta(auth);
+        setRole(auth.role);
+      })
+      .catch(() => undefined);
+  }
 
   const openEmail = useCallback(async (id: number, excerpt: string) => {
     setEmailExcerpt(excerpt);
@@ -685,15 +773,23 @@ export default function App() {
         <header className="app-header">
           <div>
             <h1>AI News Newsletter Explorer</h1>
+            {role === "viewer" && (
+              <p className="viewer-hint">Viewing only — sign in to mark items or sync.</p>
+            )}
           </div>
           <div className="header-right">
-            <PublishControl status={publishStatus} onPublish={startPublish} />
+            <AuthChip
+              role={role}
+              onSignIn={() => setSignInOpen(true)}
+              onSignOut={handleSignOut}
+            />
+            {canEdit && <PublishControl status={publishStatus} onPublish={startPublish} />}
             <InboxStatus settings={settings} />
           </div>
         </header>
 
         <nav className="tabs" role="tablist" aria-label="Sections">
-          {TABS.map((tab) => {
+          {TABS.filter((tab) => !tab.adminOnly || canAdmin).map((tab) => {
             const count = tab.id === "marked" ? markedCount : 0;
             return (
               <button
@@ -747,6 +843,8 @@ export default function App() {
               busy={jobBusy}
               error={error}
               now={now}
+              canEdit={canEdit}
+              onSignIn={() => setSignInOpen(true)}
               onSync={async () => {
                 try {
                   await requestSync();
@@ -914,13 +1012,23 @@ export default function App() {
       </div>
 
       <div className="app-scroll">
-      {view === "search" ? (
+      {view === "admin" && canAdmin ? (
+        <AdminView
+          categories={categories}
+          setCategories={setCategories}
+          setError={setError}
+          error={error}
+        />
+      ) : view === "search" ? (
         <SearchView
           onOpenEmail={openEmail}
           setError={setError}
           error={error}
           categories={categories}
           onAddCategory={addCategory}
+          canEdit={canEdit}
+          canAdmin={canAdmin}
+          onSignIn={() => setSignInOpen(true)}
           onKept={(cand) => {
             setCandidates((prev) => {
               if (prev.some((c) => c.id === cand.id)) {
@@ -942,6 +1050,8 @@ export default function App() {
           onOpenEmail={openEmail}
           openMenu={openMenu}
           setOpenMenu={setOpenMenu}
+          canEdit={canEdit}
+          canAdmin={canAdmin}
         />
       ) : (
         <>
@@ -963,6 +1073,8 @@ export default function App() {
                     onAddCategory={addCategory}
                     onOpenEmail={openEmail}
                     onComment={setCommentFor}
+                    canEdit={canEdit}
+                    canAdmin={canAdmin}
                   />
                 ))}
               </div>
@@ -1008,6 +1120,8 @@ export default function App() {
                   onAddCategory={addCategory}
                   onOpenEmail={openEmail}
                   onComment={setCommentFor}
+                  canEdit={canEdit}
+                  canAdmin={canAdmin}
                 />
             ))
           )}
@@ -1015,18 +1129,27 @@ export default function App() {
         </>
       )}
 
-      {commentCandidate && (
+      {commentCandidate && canEdit && (
         <CommentPrompt
           c={commentCandidate}
           categories={categories}
           onPatch={patch}
           onAddCategory={addCategory}
+          canAdmin={canAdmin}
           onSave={async (text) => {
             // Keep the editor open on failure so the comment is not lost.
             if (text === commentCandidate.notes) setCommentFor(null);
             else if (await patch(commentCandidate.id, { notes: text })) setCommentFor(null);
           }}
           onClose={() => setCommentFor(null)}
+        />
+      )}
+
+      {signInOpen && (
+        <SignInModal
+          authMeta={authMeta}
+          onUnlock={handleUnlock}
+          onClose={() => setSignInOpen(false)}
         />
       )}
 
@@ -1073,6 +1196,8 @@ function JobPanel({
   busy,
   error,
   now,
+  canEdit,
+  onSignIn,
   onSync,
   onDismiss,
 }: {
@@ -1081,15 +1206,23 @@ function JobPanel({
   busy: boolean;
   error: string;
   now: number;
+  canEdit: boolean;
+  onSignIn: () => void;
   onSync: () => void;
   onDismiss: () => void;
 }) {
   return (
     <section className="job-panel">
       <div className="job-row">
-        <button type="button" className="btn-primary" disabled={busy} onClick={onSync}>
-          Sync inbox now
-        </button>
+        {canEdit ? (
+          <button type="button" className="btn-primary" disabled={busy} onClick={onSync}>
+            Sync inbox now
+          </button>
+        ) : (
+          <button type="button" className="btn-primary" onClick={onSignIn}>
+            Sign in to sync
+          </button>
+        )}
       </div>
       {!job && (
         <p className="job-idle">
@@ -1097,11 +1230,13 @@ function JobPanel({
             ? "Checking the dedicated inbox…"
             : !settings.inbox_configured
               ? "Set IMAP_USER, IMAP_PASSWORD, and IMAP_ALLOWED_FROM in .env and restart, so newsletters forwarded to the dedicated inbox can be pulled in."
-              : `Forward newsletters to ${settings.inbox_email || "the dedicated inbox"} and they are pulled in ${
-                  settings.inbox_enabled
-                    ? `automatically every day at ${syncHourLabel(settings.sync_hour)}`
-                    : "on request (the daily pull is switched off)"
-                }. Sync inbox now pulls anything new straight away, then GPT reads each new newsletter and extracts probe ideas (about 2–3 minutes per email).`}
+              : canEdit
+                ? `Forward newsletters to ${settings.inbox_email || "the dedicated inbox"} and they are pulled in ${
+                    settings.inbox_enabled
+                      ? `automatically every day at ${syncHourLabel(settings.sync_hour)}`
+                      : "on request (the daily pull is switched off)"
+                  }. Sync inbox now pulls anything new straight away, then GPT reads each new newsletter and extracts probe ideas (about 2–3 minutes per email).`
+                : `Newsletters are pulled into ${settings.inbox_email || "the dedicated inbox"} automatically. You are viewing results — sign in as analyst to sync or mark items.`}
         </p>
       )}
       {error && <p className="err">{error}</p>}
@@ -1279,6 +1414,8 @@ function CandidateCard({
   onAddCategory,
   onOpenEmail,
   onComment,
+  canEdit = true,
+  canAdmin = false,
 }: {
   c: Candidate;
   categories: Category[];
@@ -1286,6 +1423,8 @@ function CandidateCard({
   onAddCategory: (name: string) => Promise<Category>;
   onOpenEmail: (id: number, excerpt: string) => void;
   onComment: (id: number) => void;
+  canEdit?: boolean;
+  canAdmin?: boolean;
 }) {
   // Marking is one click; the comment prompt opens afterwards so it stays optional.
   async function toggleMark(field: "important" | "shortlisted") {
@@ -1315,32 +1454,38 @@ function CandidateCard({
             categories={categories}
             onPatch={onPatch}
             onAddCategory={onAddCategory}
+            canEdit={canEdit}
+            canAdmin={canAdmin}
           />
-          <button
-            type="button"
-            className={`btn-important ${c.important ? "is-on" : ""}`}
-            onClick={() => toggleMark("important")}
-          >
-            {c.important ? "Unmark Important" : "Mark Important"}
-          </button>
-          <button
-            type="button"
-            className={`btn-shortlist ${c.shortlisted ? "is-on" : ""}`}
-            onClick={() => toggleMark("shortlisted")}
-          >
-            {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
-          </button>
-          <button
-            type="button"
-            className="btn-delete"
-            onClick={() => {
-              if (window.confirm("Delete this item? This cannot be undone.")) {
-                onPatch(c.id, { deleted: true });
-              }
-            }}
-          >
-            Delete
-          </button>
+          {canEdit ? (
+            <>
+              <button
+                type="button"
+                className={`btn-important ${c.important ? "is-on" : ""}`}
+                onClick={() => toggleMark("important")}
+              >
+                {c.important ? "Unmark Important" : "Mark Important"}
+              </button>
+              <button
+                type="button"
+                className={`btn-shortlist ${c.shortlisted ? "is-on" : ""}`}
+                onClick={() => toggleMark("shortlisted")}
+              >
+                {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
+              </button>
+              <button
+                type="button"
+                className="btn-delete"
+                onClick={() => {
+                  if (window.confirm("Delete this item? This cannot be undone.")) {
+                    onPatch(c.id, { deleted: true });
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
       <h2>{c.topic}</h2>
@@ -1360,7 +1505,7 @@ function CandidateCard({
         <p className="field-label">Analyzer agent comment:</p>
         <p className="idea">{c.main_idea}</p>
       </div>
-      <CommentDisplay c={c} onEdit={() => onComment(c.id)} />
+      <CommentDisplay c={c} onEdit={() => onComment(c.id)} canEdit={canEdit} />
     </article>
   );
 }
@@ -1371,12 +1516,16 @@ function MarkedRow({
   onPatch,
   onAddCategory,
   onOpenEmail,
+  canEdit = true,
+  canAdmin = false,
 }: {
   c: Candidate;
   categories: Category[];
   onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
   onAddCategory: (name: string) => Promise<Category>;
   onOpenEmail: (id: number, excerpt: string) => void;
+  canEdit?: boolean;
+  canAdmin?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const added = formatMarkedDate(c.marked_at);
@@ -1407,7 +1556,7 @@ function MarkedRow({
         <p className="field-label">Analyzer agent comment:</p>
         <p className="idea">{c.main_idea}</p>
       </div>
-      {editing ? (
+      {editing && canEdit ? (
         <CommentBox
           value={c.notes}
           onSave={async (text) => {
@@ -1417,30 +1566,33 @@ function MarkedRow({
           onCancel={() => setEditing(false)}
         />
       ) : (
-        <CommentDisplay c={c} onEdit={() => setEditing(true)} />
+        <CommentDisplay c={c} onEdit={() => setEditing(true)} canEdit={canEdit} />
       )}
-      <div className="marked-actions">
-        <CategoryPicker
-          c={c}
-          categories={categories}
-          onPatch={onPatch}
-          onAddCategory={onAddCategory}
-        />
-        <button
-          type="button"
-          className={`btn-important ${c.important ? "is-on" : ""}`}
-          onClick={() => onPatch(c.id, { important: !c.important })}
-        >
-          {c.important ? "Unmark Important" : "Mark Important"}
-        </button>
-        <button
-          type="button"
-          className={`btn-shortlist ${c.shortlisted ? "is-on" : ""}`}
-          onClick={() => onPatch(c.id, { shortlisted: !c.shortlisted })}
-        >
-          {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
-        </button>
-      </div>
+      {canEdit && (
+        <div className="marked-actions">
+          <CategoryPicker
+            c={c}
+            categories={categories}
+            onPatch={onPatch}
+            onAddCategory={onAddCategory}
+            canAdmin={canAdmin}
+          />
+          <button
+            type="button"
+            className={`btn-important ${c.important ? "is-on" : ""}`}
+            onClick={() => onPatch(c.id, { important: !c.important })}
+          >
+            {c.important ? "Unmark Important" : "Mark Important"}
+          </button>
+          <button
+            type="button"
+            className={`btn-shortlist ${c.shortlisted ? "is-on" : ""}`}
+            onClick={() => onPatch(c.id, { shortlisted: !c.shortlisted })}
+          >
+            {c.shortlisted ? "Remove from Shortlist" : "Shortlist for Probe"}
+          </button>
+        </div>
+      )}
     </article>
   );
 }
@@ -1461,6 +1613,8 @@ function MarkedView({
   onOpenEmail,
   openMenu,
   setOpenMenu,
+  canEdit = true,
+  canAdmin = false,
 }: {
   candidates: Candidate[];
   categories: Category[];
@@ -1471,6 +1625,8 @@ function MarkedView({
   onOpenEmail: (id: number, excerpt: string) => void;
   openMenu: string | null;
   setOpenMenu: (id: string | null) => void;
+  canEdit?: boolean;
+  canAdmin?: boolean;
 }) {
   const [view, setView] = useState<MarkView>("all");
   const [hiddenCats, setHiddenCats] = useState<Set<string>>(() => showAllCategories());
@@ -1579,6 +1735,8 @@ function MarkedView({
               onPatch={onPatch}
               onAddCategory={onAddCategory}
               onOpenEmail={onOpenEmail}
+              canEdit={canEdit}
+              canAdmin={canAdmin}
             />
           ))
         )}
@@ -1607,6 +1765,9 @@ function SearchView({
   categories,
   onAddCategory,
   onKept,
+  canEdit = true,
+  canAdmin = false,
+  onSignIn,
 }: {
   onOpenEmail: (id: number, excerpt: string) => void;
   setError: (s: string) => void;
@@ -1614,6 +1775,9 @@ function SearchView({
   categories: Category[];
   onAddCategory: (name: string) => Promise<Category>;
   onKept: (c: Candidate) => void;
+  canEdit?: boolean;
+  canAdmin?: boolean;
+  onSignIn?: () => void;
 }) {
   const [question, setQuestion] = useState("");
   const [from, setFrom] = useState("");
@@ -1838,17 +2002,19 @@ function SearchView({
                   </td>
                   <td className="search-history-range">{searchRangeLabel(s)}</td>
                   <td className="search-history-delete">
-                    <button
-                      type="button"
-                      className="chip-x"
-                      aria-label="Delete this search"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        remove(s.id);
-                      }}
-                    >
-                      ×
-                    </button>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        className="chip-x"
+                        aria-label="Delete this search"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          remove(s.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -1920,17 +2086,20 @@ function SearchView({
               key={h.id}
               h={h}
               onOpenEmail={onOpenEmail}
+              canEdit={canEdit}
               onKeep={() => setKeepHit(h)}
+              onSignIn={onSignIn}
             />
           ))
         )}
       </main>
 
-      {keepHit && active && (
+      {keepHit && active && canEdit && (
         <KeepHitPrompt
           hit={keepHit}
           categories={categories}
           onAddCategory={onAddCategory}
+          canAdmin={canAdmin}
           onClose={() => setKeepHit(null)}
           onSave={async (body) => {
             const out = await api.keepHit(active.id, keepHit.id, body);
@@ -1952,10 +2121,14 @@ function HitCard({
   h,
   onOpenEmail,
   onKeep,
+  canEdit = true,
+  onSignIn,
 }: {
   h: SearchHit;
   onOpenEmail: (id: number, excerpt: string) => void;
   onKeep: () => void;
+  canEdit?: boolean;
+  onSignIn?: () => void;
 }) {
   return (
     <article className={`hit-card ${h.relevance === "direct" ? "is-direct" : ""}`}>
@@ -1968,9 +2141,13 @@ function HitCard({
             <span className="badge important-flag">Added to marked items</span>
           ) : null}
         </div>
-        {h.candidate_id ? null : (
+        {h.candidate_id ? null : canEdit ? (
           <button type="button" className="btn-primary" onClick={onKeep}>
             Add to marked items
+          </button>
+        ) : (
+          <button type="button" className="btn-quiet" onClick={onSignIn}>
+            Sign in to mark
           </button>
         )}
       </div>
@@ -2006,6 +2183,7 @@ function KeepHitPrompt({
   onAddCategory,
   onSave,
   onClose,
+  canAdmin = false,
 }: {
   hit: SearchHit;
   categories: Category[];
@@ -2018,6 +2196,7 @@ function KeepHitPrompt({
     shortlisted: boolean;
   }) => Promise<void>;
   onClose: () => void;
+  canAdmin?: boolean;
 }) {
   const [tag, setTag] = useState("");
   const [categoryId, setCategoryId] = useState<number | "">("");
@@ -2027,6 +2206,7 @@ function KeepHitPrompt({
   const [shortlisted, setShortlisted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const activeCats = categories.filter((cat) => !cat.deprecated);
 
   const canSave = Boolean(tag && categoryId && (important || shortlisted) && !busy);
 
@@ -2080,7 +2260,7 @@ function KeepHitPrompt({
           <span className="prompt-category-label">
             {categoryId ? "Category" : "Assign a category"}
           </span>
-          {adding ? (
+          {adding && canAdmin ? (
             <NewCategoryForm
               onSave={async (name) => {
                 const cat = await onAddCategory(name);
@@ -2103,12 +2283,12 @@ function KeepHitPrompt({
               }}
             >
               <option value="">Categorise…</option>
-              {categories.map((cat) => (
+              {activeCats.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.name}
                 </option>
               ))}
-              <option value="__new__">+ Add new category…</option>
+              {canAdmin && <option value="__new__">+ Add new category…</option>}
             </select>
           )}
         </div>
@@ -2155,6 +2335,371 @@ function KeepHitPrompt({
         </div>
       </form>
     </>
+  );
+}
+
+function AuthChip({
+  role,
+  onSignIn,
+  onSignOut,
+}: {
+  role: Role;
+  onSignIn: () => void;
+  onSignOut: () => void;
+}) {
+  if (role === "viewer") {
+    return (
+      <button type="button" className="auth-chip" onClick={onSignIn}>
+        Sign in
+      </button>
+    );
+  }
+  return (
+    <div className="auth-chip signed-in">
+      <span className="auth-role">{role === "admin" ? "Admin" : "Analyst"}</span>
+      <button type="button" className="linkish" onClick={onSignOut}>
+        Sign out
+      </button>
+    </div>
+  );
+}
+
+function SignInModal({
+  authMeta,
+  onUnlock,
+  onClose,
+}: {
+  authMeta: AuthStatus | null;
+  onUnlock: (token: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const [mode, setMode] = useState<"analyst" | "admin">("analyst");
+
+  async function submit() {
+    if (!token.trim() || busy) return;
+    setBusy(true);
+    setLocalError("");
+    try {
+      await onUnlock(token.trim());
+    } catch (e) {
+      setLocalError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="email-backdrop" onClick={onClose} />
+      <div className="comment-modal sign-in-modal">
+        <h2>Sign in</h2>
+        <p className="meta">
+          The app opens as a viewer. Paste an analyst or admin token from{" "}
+          <code>.env</code> to unlock edits.
+        </p>
+        <div className="segmented sign-in-modes">
+          <button
+            type="button"
+            className={mode === "analyst" ? "on" : ""}
+            onClick={() => setMode("analyst")}
+          >
+            Analyst
+          </button>
+          <button
+            type="button"
+            className={mode === "admin" ? "on" : ""}
+            onClick={() => setMode("admin")}
+          >
+            Admin
+          </button>
+        </div>
+        <p className="sign-in-hint">
+          {mode === "admin"
+            ? "Admin can edit research priorities, past probes, and categories. Changes apply to new newsletters only — existing marks and comments are never wiped."
+            : "Analyst can mark items, sync the inbox, extract, and publish. Viewers can still browse and run semantic search."}
+        </p>
+        {authMeta && mode === "analyst" && !authMeta.analyst_token_set && (
+          <p className="err">ANALYST_TOKEN is not set in .env yet.</p>
+        )}
+        {authMeta && mode === "admin" && !authMeta.admin_token_set && (
+          <p className="err">ADMIN_TOKEN is not set in .env yet.</p>
+        )}
+        <label className="sign-in-label">
+          {mode === "admin" ? "Admin token" : "Analyst token"}
+          <input
+            type="password"
+            autoFocus
+            value={token}
+            placeholder="Paste token"
+            aria-label={mode === "admin" ? "Admin token" : "Analyst token"}
+            disabled={busy}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+              if (e.key === "Escape") onClose();
+            }}
+          />
+        </label>
+        {localError && <p className="err">{localError}</p>}
+        <div className="comment-form-actions">
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy || !token.trim()}
+            onClick={submit}
+          >
+            {busy ? "Checking…" : "Unlock"}
+          </button>
+          <button type="button" className="btn-quiet" onClick={onClose} disabled={busy}>
+            Stay as viewer
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AreaEditor({
+  title,
+  items,
+  onChange,
+}: {
+  title: string;
+  items: ResearchArea[];
+  onChange: (next: ResearchArea[]) => void;
+}) {
+  return (
+    <section className="admin-section">
+      <h3>{title}</h3>
+      {items.map((item, i) => (
+        <div key={i} className="admin-area-row">
+          <input
+            value={item.name}
+            placeholder="Name"
+            aria-label={`${title} name ${i + 1}`}
+            onChange={(e) => {
+              const next = items.slice();
+              next[i] = { ...item, name: e.target.value };
+              onChange(next);
+            }}
+          />
+          <textarea
+            rows={3}
+            value={item.description}
+            placeholder="Description"
+            aria-label={`${title} description ${i + 1}`}
+            onChange={(e) => {
+              const next = items.slice();
+              next[i] = { ...item, description: e.target.value };
+              onChange(next);
+            }}
+          />
+          <button
+            type="button"
+            className="btn-quiet"
+            onClick={() => onChange(items.filter((_, j) => j !== i))}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="btn-quiet"
+        onClick={() => onChange([...items, { name: "", description: "" }])}
+      >
+        + Add
+      </button>
+    </section>
+  );
+}
+
+function AdminView({
+  categories,
+  setCategories,
+  setError,
+  error,
+}: {
+  categories: Category[];
+  setCategories: React.Dispatch<React.SetStateAction<Category[]>>;
+  setError: (s: string) => void;
+  error: string;
+}) {
+  const [ctx, setCtx] = useState<ResearchContext | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [savedNote, setSavedNote] = useState("");
+  const [newCat, setNewCat] = useState("");
+
+  useEffect(() => {
+    api
+      .researchContext()
+      .then(setCtx)
+      .catch((e: Error) => setError(e.message));
+  }, [setError]);
+
+  async function saveContext() {
+    if (!ctx || busy) return;
+    setBusy(true);
+    setSavedNote("");
+    try {
+      const saved = await api.saveResearchContext({
+        priority_areas: ctx.priority_areas,
+        past_probes: ctx.past_probes,
+        not_useful: ctx.not_useful,
+      });
+      setCtx(saved);
+      setSavedNote(
+        "Saved. New newsletters will use this context — already analysed emails are unchanged.",
+      );
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addCat() {
+    const name = newCat.trim();
+    if (!name) return;
+    try {
+      const cat = await api.addCategory(name);
+      setCategories((prev) => {
+        if (prev.some((c) => c.id === cat.id)) return prev;
+        return [...prev, cat].sort(
+          (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
+        );
+      });
+      setNewCat("");
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function toggleDeprecated(cat: Category) {
+    try {
+      const updated = await api.patchCategory(cat.id, { deprecated: !cat.deprecated });
+      setCategories((prev) => prev.map((c) => (c.id === cat.id ? updated : c)));
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  if (!ctx) {
+    return <p className="job-idle">Loading research context…</p>;
+  }
+
+  return (
+    <div className="admin-view">
+      <div className="admin-banner" role="status">
+        <strong>Changes apply to new newsletters only.</strong> Editing priorities, past probes,
+        not-useful list, or categories does <em>not</em> re-analyse emails already in the database
+        and never wipes marks or comments. Deprecated categories stay on old items; only new
+        extractions skip them. There is no delete for historic marks yet.
+      </div>
+      {error && <p className="err">{error}</p>}
+      {savedNote && <p className="admin-saved">{savedNote}</p>}
+      <p className="meta">
+        Source: {ctx.source === "database" ? "saved overrides (database)" : "skills file default"}
+      </p>
+
+      <AreaEditor
+        title="Current higher-priority research areas"
+        items={ctx.priority_areas}
+        onChange={(priority_areas) => setCtx({ ...ctx, priority_areas })}
+      />
+      <AreaEditor
+        title="Previous Genie probes"
+        items={ctx.past_probes}
+        onChange={(past_probes) => setCtx({ ...ctx, past_probes })}
+      />
+
+      <section className="admin-section">
+        <h3>Generally not useful</h3>
+        {ctx.not_useful.map((item, i) => (
+          <div key={i} className="admin-bullet-row">
+            <input
+              value={item}
+              aria-label={`Not useful ${i + 1}`}
+              onChange={(e) => {
+                const not_useful = ctx.not_useful.slice();
+                not_useful[i] = e.target.value;
+                setCtx({ ...ctx, not_useful });
+              }}
+            />
+            <button
+              type="button"
+              className="btn-quiet"
+              onClick={() =>
+                setCtx({
+                  ...ctx,
+                  not_useful: ctx.not_useful.filter((_, j) => j !== i),
+                })
+              }
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="btn-quiet"
+          onClick={() => setCtx({ ...ctx, not_useful: [...ctx.not_useful, ""] })}
+        >
+          + Add
+        </button>
+      </section>
+
+      <div className="admin-save-row">
+        <button type="button" className="btn-primary" disabled={busy} onClick={saveContext}>
+          {busy ? "Saving…" : "Save research context"}
+        </button>
+      </div>
+
+      <section className="admin-section">
+        <h3>Categories</h3>
+        <p className="admin-cat-warn">
+          New categories and deprecations affect <strong>new</strong> extractions only. Old
+          candidates keep their existing category. Prefer deprecating over deleting — there is no
+          wipe of historic assignments.
+        </p>
+        <ul className="admin-cat-list">
+          {categories.map((cat) => (
+            <li key={cat.id} className={cat.deprecated ? "deprecated" : ""}>
+              <span>
+                {cat.name}
+                {cat.deprecated ? " · deprecated" : ""}
+              </span>
+              <button type="button" className="btn-quiet" onClick={() => toggleDeprecated(cat)}>
+                {cat.deprecated ? "Restore for new mail" : "Deprecate for new mail"}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form
+          className="new-cat-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addCat();
+          }}
+        >
+          <input
+            value={newCat}
+            onChange={(e) => setNewCat(e.target.value)}
+            placeholder="New category name"
+            aria-label="New category name"
+          />
+          <button type="submit" disabled={!newCat.trim()}>
+            Add category
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }
 

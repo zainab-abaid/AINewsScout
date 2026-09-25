@@ -16,7 +16,7 @@ import {
 } from "../src/filters";
 
 function cat(id: number, name: string): Category {
-  return { id, name, is_default: false, sort_order: id };
+  return { id, name, is_default: false, sort_order: id, deprecated: false };
 }
 
 function candidate(id: number, categoryId: number | null): Candidate {

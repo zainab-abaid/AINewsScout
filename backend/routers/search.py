@@ -8,6 +8,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from backend.auth import require_role
 from backend.database import get_session
 from backend.db import Candidate, Category, Email, IdeaSearch, IdeaSearchHit, Job, utcnow
 from backend.routers.core import to_out
@@ -197,6 +198,7 @@ def keep_hit(
     hit_id: int,
     body: KeepHitIn,
     session: Session = Depends(get_session),
+    _role: str = require_role("analyst"),
 ):
     """Turn a search finding into a probe candidate and mark it.
 
@@ -261,7 +263,11 @@ def keep_hit(
 
 
 @router.delete("/searches/{search_id}")
-def delete_search(search_id: int, session: Session = Depends(get_session)):
+def delete_search(
+    search_id: int,
+    session: Session = Depends(get_session),
+    _role: str = require_role("analyst"),
+):
     search = session.get(IdeaSearch, search_id)
     if not search:
         raise HTTPException(404, "Search not found")

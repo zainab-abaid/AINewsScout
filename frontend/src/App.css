@@ -651,3 +651,99 @@ button.linkish {
 .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; background: #f4f1ea; padding: .15rem .35rem; border-radius: 4px; }
 .ol-setup { color: var(--muted); padding-left: 1.2rem; }
 .ol-setup li { margin: .35rem 0; }
+
+.viewer-hint {
+  margin: .25rem 0 0;
+  font-size: .82rem;
+  color: var(--muted);
+}
+.auth-chip {
+  font: inherit;
+  font-size: .82rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 8px;
+  padding: .3rem .75rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.auth-chip.signed-in {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  cursor: default;
+}
+.auth-role {
+  font-weight: 650;
+  text-transform: capitalize;
+}
+.sign-in-modal { max-width: 28rem; }
+.sign-in-modes { margin: .75rem 0 .5rem; }
+.sign-in-hint { font-size: .88rem; color: var(--muted); margin: 0 0 .85rem; }
+.sign-in-label {
+  display: grid;
+  gap: .35rem;
+  font-size: .82rem;
+  font-weight: 650;
+  color: var(--muted);
+  margin-bottom: .75rem;
+}
+.sign-in-label input {
+  font: inherit;
+  padding: .5rem .65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.category-readonly {
+  font-size: .82rem;
+  color: var(--muted);
+  padding: .2rem .4rem;
+}
+.admin-view { display: grid; gap: 1.25rem; padding-top: .5rem; }
+.admin-banner {
+  background: #f8e8e8;
+  border: 1px solid #e2c4c4;
+  border-radius: 10px;
+  padding: .85rem 1rem;
+  font-size: .92rem;
+  line-height: 1.45;
+}
+.admin-saved { color: var(--important); font-size: .9rem; margin: 0; }
+.admin-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+}
+.admin-section h3 { margin: 0 0 .75rem; font-size: 1rem; }
+.admin-area-row, .admin-bullet-row {
+  display: grid;
+  gap: .45rem;
+  margin-bottom: .85rem;
+  padding-bottom: .85rem;
+  border-bottom: 1px solid var(--border);
+}
+.admin-area-row input, .admin-area-row textarea, .admin-bullet-row input {
+  font: inherit;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .45rem .6rem;
+}
+.admin-save-row { display: flex; gap: .75rem; align-items: center; }
+.admin-cat-warn { font-size: .88rem; color: var(--muted); margin: 0 0 .75rem; }
+.admin-cat-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+.admin-cat-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  padding: .45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .92rem;
+}
+.admin-cat-list li.deprecated { color: var(--muted); }

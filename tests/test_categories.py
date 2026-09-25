@@ -4,24 +4,33 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import TEST_ADMIN_TOKEN
+
+
+def _admin(client: TestClient) -> dict[str, str]:
+    return {"X-Access-Token": TEST_ADMIN_TOKEN}
+
 
 def test_new_category_is_created_assigned_and_persisted(client: TestClient):
     before = client.get("/api/categories").json()
     assert all(c["name"] != "Agent skills" for c in before)
 
-    created = client.post("/api/categories", json={"name": "Agent skills"})
+    created = client.post("/api/categories", headers=_admin(client), json={"name": "Agent skills"})
     assert created.status_code == 200, created.text
     cat = created.json()
     assert cat["id"]
     assert cat["name"] == "Agent skills"
     assert cat["is_default"] is False
+    assert cat.get("deprecated") is False
 
     # Immediately listed, so the dropdown picks it up without a reload.
     listed = client.get("/api/categories").json()
     assert any(c["id"] == cat["id"] for c in listed)
 
     # Creating the same name again reuses the row instead of duplicating it.
-    again = client.post("/api/categories", json={"name": "Agent skills"}).json()
+    again = client.post(
+        "/api/categories", headers=_admin(client), json={"name": "Agent skills"}
+    ).json()
     assert again["id"] == cat["id"]
     assert len(client.get("/api/categories").json()) == len(listed)
 
@@ -44,11 +53,14 @@ def test_new_category_is_created_assigned_and_persisted(client: TestClient):
 
 
 def test_blank_category_name_is_rejected(client: TestClient):
-    assert client.post("/api/categories", json={"name": "   "}).status_code == 400
+    assert (
+        client.post("/api/categories", headers=_admin(client), json={"name": "   "}).status_code
+        == 400
+    )
 
 
 def test_category_can_be_cleared(client: TestClient):
-    cat = client.post("/api/categories", json={"name": "Temp"}).json()
+    cat = client.post("/api/categories", headers=_admin(client), json={"name": "Temp"}).json()
     candidate = client.get("/api/candidates?status=all").json()[0]
     client.patch(f"/api/candidates/{candidate['id']}", json={"category_id": cat["id"]})
     cleared = client.patch(

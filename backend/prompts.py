@@ -24,7 +24,9 @@ def idea_search_instructions() -> str:
 
 def extractor_instructions(categories: Sequence[str] = ()) -> str:
     rules = _read_skill("02_single_email_candidate_extractor.md")
-    context = _read_skill("01_genie_research_context.md")
+    from backend.services.research_context import research_context_markdown
+
+    context = research_context_markdown()
     cat_block = ""
     if categories:
         listed = "\n".join(f"- {c}" for c in categories)

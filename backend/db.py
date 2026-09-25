@@ -35,6 +35,8 @@ class Category(SQLModel, table=True):
     name: str = Field(unique=True)
     is_default: bool = False
     sort_order: int = 0
+    # Deprecated categories stay on old candidates; new extractions skip them.
+    deprecated: bool = False
 
 
 class Candidate(SQLModel, table=True):

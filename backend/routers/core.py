@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, func, select
 
+from backend.auth import require_role
 from backend.database import get_session
 from backend.db import Candidate, Category, Email, utcnow
 from backend.services.links import hydrate_excerpt_links, normalize_inline_links
@@ -15,6 +16,7 @@ from backend.schemas import (
     CandidatePatch,
     CategoryCreate,
     CategoryOut,
+    CategoryPatch,
     EmailOut,
     StatsOut,
     tag_slug,
@@ -126,6 +128,7 @@ def patch_candidate(
     candidate_id: int,
     body: CandidatePatch,
     session: Session = Depends(get_session),
+    _role: str = require_role("analyst"),
 ):
     cand = session.get(Candidate, candidate_id)
     if not cand:
@@ -177,36 +180,69 @@ def get_email(email_id: int, session: Session = Depends(get_session)):
     )
 
 
+def _category_out(r: Category) -> CategoryOut:
+    return CategoryOut(
+        id=r.id,
+        name=r.name,
+        is_default=r.is_default,
+        sort_order=r.sort_order,
+        deprecated=bool(getattr(r, "deprecated", False)),
+    )
+
+
 @router.get("/categories", response_model=list[CategoryOut])
 def list_categories(session: Session = Depends(get_session)):
     rows = session.exec(select(Category).order_by(Category.sort_order, Category.name)).all()
-    return [
-        CategoryOut(id=r.id, name=r.name, is_default=r.is_default, sort_order=r.sort_order)
-        for r in rows
-    ]
+    return [_category_out(r) for r in rows]
 
 
 @router.post("/categories", response_model=CategoryOut)
-def create_category(body: CategoryCreate, session: Session = Depends(get_session)):
+def create_category(
+    body: CategoryCreate,
+    session: Session = Depends(get_session),
+    _role: str = require_role("admin"),
+):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Name required")
     existing = session.exec(select(Category).where(Category.name == name)).first()
     if existing:
-        return CategoryOut(
-            id=existing.id,
-            name=existing.name,
-            is_default=existing.is_default,
-            sort_order=existing.sort_order,
-        )
+        return _category_out(existing)
     max_order = session.exec(select(func.max(Category.sort_order))).one() or 0
     row = Category(name=name, is_default=False, sort_order=int(max_order) + 1)
     session.add(row)
     session.commit()
     session.refresh(row)
-    return CategoryOut(
-        id=row.id, name=row.name, is_default=row.is_default, sort_order=row.sort_order
-    )
+    return _category_out(row)
+
+
+@router.patch("/categories/{category_id}", response_model=CategoryOut)
+def patch_category(
+    category_id: int,
+    body: CategoryPatch,
+    session: Session = Depends(get_session),
+    _role: str = require_role("admin"),
+):
+    """Rename or deprecate a category. Never deletes; old candidates keep their link."""
+    row = session.get(Category, category_id)
+    if not row:
+        raise HTTPException(404, "Category not found")
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "Name required")
+        clash = session.exec(
+            select(Category).where(Category.name == name, Category.id != category_id)
+        ).first()
+        if clash:
+            raise HTTPException(400, "A category with that name already exists")
+        row.name = name
+    if body.deprecated is not None:
+        row.deprecated = body.deprecated
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return _category_out(row)
 
 
 @router.get("/stats", response_model=StatsOut)

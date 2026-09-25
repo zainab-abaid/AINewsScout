@@ -50,6 +50,7 @@ class CategoryOut(BaseModel):
     name: str
     is_default: bool
     sort_order: int
+    deprecated: bool = False
 
 
 class CandidateOut(BaseModel):
@@ -135,6 +136,39 @@ class ExtractRequest(BaseModel):
 
 class CategoryCreate(BaseModel):
     name: str
+
+
+class CategoryPatch(BaseModel):
+    name: Optional[str] = None
+    deprecated: Optional[bool] = None
+
+
+class ResearchAreaIn(BaseModel):
+    name: str
+    description: str = ""
+
+
+class ResearchContextOut(BaseModel):
+    priority_areas: list[ResearchAreaIn] = Field(default_factory=list)
+    past_probes: list[ResearchAreaIn] = Field(default_factory=list)
+    not_useful: list[str] = Field(default_factory=list)
+    source: str = "skill_file"
+
+
+class ResearchContextIn(BaseModel):
+    priority_areas: list[ResearchAreaIn] = Field(default_factory=list)
+    past_probes: list[ResearchAreaIn] = Field(default_factory=list)
+    not_useful: list[str] = Field(default_factory=list)
+
+
+class AuthUnlockIn(BaseModel):
+    token: str
+
+
+class AuthStatusOut(BaseModel):
+    role: str
+    analyst_token_set: bool
+    admin_token_set: bool
 
 
 class Relevance(str, Enum):

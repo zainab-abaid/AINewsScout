@@ -187,10 +187,14 @@ def emails_in_range(
 
 
 def _load_categories() -> dict[str, int]:
-    """Return {category_name_lower: id} for all categories in the DB."""
+    """Return {category_name_lower: id} for active (non-deprecated) categories."""
     with session_scope() as session:
         rows = session.exec(select(Category)).all()
-        return {r.name.lower(): r.id for r in rows if r.id is not None}
+        return {
+            r.name.lower(): r.id
+            for r in rows
+            if r.id is not None and not getattr(r, "deprecated", False)
+        }
 
 
 def _resolve_category(
@@ -211,11 +215,12 @@ def extract_email_ids(
     total = len(ids)
     # Fetch categories once for the whole batch; names are passed to the LLM.
     cat_map = _load_categories()
-    category_names = list(cat_map.keys())  # already lowercased; fine for display too
-    # Re-load with original casing for the prompt.
+    # Active categories only — deprecated ones stay on old items but are not offered to the model.
     with session_scope() as session:
         category_names_display = [
-            r.name for r in session.exec(select(Category)).all()
+            r.name
+            for r in session.exec(select(Category)).all()
+            if not getattr(r, "deprecated", False)
         ]
     for i, eid in enumerate(ids, start=1):
         with session_scope() as session:

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import threading
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
+from backend.auth import require_role
 from backend.services.publish import publish_snapshot
 
 router = APIRouter()
@@ -25,7 +26,7 @@ def get_publish_status():
 
 
 @router.post("/publish", response_model=PublishStatus)
-def start_publish():
+def start_publish(_role: str = require_role("analyst")):
     if not _lock.acquire(blocking=False):
         return PublishStatus(**_state)
     _state.update({"status": "running", "url": "", "error": ""})

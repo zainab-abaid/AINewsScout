@@ -1,4 +1,20 @@
 export type TagSlug = "high-priority" | "strong" | "possible";
+export type Role = "viewer" | "analyst" | "admin";
+
+export type AuthStatus = {
+  role: Role;
+  analyst_token_set: boolean;
+  admin_token_set: boolean;
+};
+
+export type ResearchArea = { name: string; description: string };
+
+export type ResearchContext = {
+  priority_areas: ResearchArea[];
+  past_probes: ResearchArea[];
+  not_useful: string[];
+  source: string;
+};
 
 export type PublishStatus = {
   status: "idle" | "running" | "done" | "error";
@@ -33,6 +49,7 @@ export type Category = {
   name: string;
   is_default: boolean;
   sort_order: number;
+  deprecated: boolean;
 };
 
 export type Stats = {
@@ -132,11 +149,36 @@ export type SearchPreview = {
   chunks: number;
 };
 
+const TOKEN_KEY = "ainews_access_token";
+
+export function getStoredToken(): string {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setStoredToken(token: string) {
+  try {
+    if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { "X-Access-Token": token } : {};
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
       ...(init?.headers || {}),
     },
   });
@@ -154,6 +196,18 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => http<AuthStatus>("/api/auth/status"),
+  unlock: (token: string) =>
+    http<AuthStatus>("/api/auth/unlock", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  researchContext: () => http<ResearchContext>("/api/admin/research-context"),
+  saveResearchContext: (body: Omit<ResearchContext, "source">) =>
+    http<ResearchContext>("/api/admin/research-context", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   stats: () => http<Stats>("/api/stats"),
   candidates: (params: Record<string, string> = {}) => {
     const q = new URLSearchParams(params);
@@ -170,19 +224,39 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
+  patchCategory: (id: number, body: { name?: string; deprecated?: boolean }) =>
+    http<Category>(`/api/categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   email: (id: number) => http<EmailDetail>(`/api/emails/${id}`),
   settings: () => http<SettingsStatus>("/api/settings/status"),
   sync: (body: { extract?: boolean } = {}) =>
     http<Job>("/api/sync", { method: "POST", body: JSON.stringify(body) }),
-  extract: () => http<Job>("/api/extract", { method: "POST", body: JSON.stringify({ pending_only: true }) }),
+  extract: () =>
+    http<Job>("/api/extract", {
+      method: "POST",
+      body: JSON.stringify({ pending_only: true }),
+    }),
   job: (id: number) => http<Job>(`/api/jobs/${id}`),
-  searchPreview: (body: { question?: string; date_from?: string; date_to?: string }) =>
+  searchPreview: (body: {
+    question?: string;
+    date_from?: string;
+    date_to?: string;
+  }) =>
     http<SearchPreview>("/api/searches/preview", {
       method: "POST",
       body: JSON.stringify({ question: "", ...body }),
     }),
-  createSearch: (body: { question: string; date_from?: string; date_to?: string }) =>
-    http<IdeaSearch>("/api/searches", { method: "POST", body: JSON.stringify(body) }),
+  createSearch: (body: {
+    question: string;
+    date_from?: string;
+    date_to?: string;
+  }) =>
+    http<IdeaSearch>("/api/searches", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   searches: () => http<IdeaSearch[]>("/api/searches"),
   search: (id: number) => http<IdeaSearchDetail>(`/api/searches/${id}`),
   keepHit: (
@@ -206,7 +280,7 @@ export const api = {
   publish: () => http<PublishStatus>("/api/publish", { method: "POST" }),
   activeJob: async () => {
     const res = await fetch("/api/jobs/active", {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
     });
     if (!res.ok) throw new Error(res.statusText);
     const body = await res.json();

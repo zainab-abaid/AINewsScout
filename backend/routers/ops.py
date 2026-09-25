@@ -5,6 +5,7 @@ from datetime import timezone
 from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
+from backend.auth import require_role
 from backend.config import OPENAI_MODEL, OPENAI_REASONING_EFFORT
 from backend.database import session_scope
 from backend.db import Email, Job
@@ -68,7 +69,7 @@ def get_job(job_id: int):
 
 
 @router.post("/sync", response_model=JobOut)
-def start_sync(body: SyncRequest):
+def start_sync(body: SyncRequest, _role: str = require_role("analyst")):
     if not imap_configured():
         raise HTTPException(
             400,
@@ -80,7 +81,7 @@ def start_sync(body: SyncRequest):
 
 
 @router.post("/extract", response_model=JobOut)
-def start_extract(body: ExtractRequest):
+def start_extract(body: ExtractRequest, _role: str = require_role("analyst")):
     payload = body.model_dump()
     if not openai_api_key():
         raise HTTPException(400, "OPENAI_API_KEY is missing from .env")
