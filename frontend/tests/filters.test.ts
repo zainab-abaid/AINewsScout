@@ -48,6 +48,7 @@ function state(overrides: Partial<FilterState> = {}): FilterState {
     tagFilters: new Set(),
     markFilters: new Set(),
     search: "",
+    searchAllDb: false,
     dateFrom: "",
     dateTo: "",
     hiddenCats: showAllCategories(),
@@ -206,5 +207,46 @@ describe("marked tab", () => {
       hiddenCats: showAllCategories(),
     });
     expect(rows.map((c) => c.id)).toEqual([2, 3, 1, 9]);
+  });
+});
+
+describe("keyword search scope", () => {
+  it("narrows only the currently filtered list when searchAllDb is off", () => {
+    const items = [
+      candidate(1, 1),
+      candidate(2, 2),
+      { ...candidate(3, 1), topic: "Harness routing paper" },
+      { ...candidate(4, 2), topic: "Harness routing note" },
+    ];
+    const visible = filterCandidates(
+      items,
+      state({
+        tagFilters: new Set(),
+        search: "harness",
+        searchAllDb: false,
+        hiddenCats: toggleCategoryVisibility(showAllCategories(), "2", false),
+      }),
+    );
+    // Category 2 is hidden, so only the category-1 harness hit remains.
+    expect(visible.map((c) => c.id)).toEqual([3]);
+  });
+
+  it("searches every candidate when searchAllDb is on", () => {
+    const items = [
+      candidate(1, 1),
+      { ...candidate(2, 2), topic: "Harness routing note" },
+      { ...candidate(3, 1), topic: "Harness routing paper" },
+    ];
+    const visible = filterCandidates(
+      items,
+      state({
+        search: "harness",
+        searchAllDb: true,
+        hiddenCats: toggleCategoryVisibility(showAllCategories(), "2", false),
+        tagFilters: new Set(["high-priority"]),
+      }),
+    );
+    // Other filters are ignored; both harness matches come back.
+    expect(visible.map((c) => c.id).sort()).toEqual([2, 3]);
   });
 });

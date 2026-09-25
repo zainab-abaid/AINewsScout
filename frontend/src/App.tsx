@@ -66,8 +66,8 @@ const TABS: { id: TabId; label: string; sub: string }[] = [
   },
   {
     id: "search",
-    label: "Search for ideas",
-    sub: "Ask a question across a date range of emails",
+    label: "Semantic search",
+    sub: "Ask a question across full newsletters",
   },
 ];
 
@@ -443,6 +443,7 @@ export default function App() {
   const [tagFilters, setTagFilters] = useState<Set<TagFilter>>(new Set());
   const [markFilters, setMarkFilters] = useState<Set<MarkFilter>>(new Set());
   const [search, setSearch] = useState("");
+  const [searchAllDb, setSearchAllDb] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [hiddenCats, setHiddenCats] = useState<Set<string>>(() => showAllCategories());
@@ -623,22 +624,39 @@ export default function App() {
     }
   }
 
+  const keywordActive = !!search.trim();
+  const searchingAllDb = keywordActive && searchAllDb;
+
   const visible = useMemo(
     () =>
       filterCandidates(candidates, {
         tagFilters,
         markFilters,
         search,
+        searchAllDb,
         dateFrom,
         dateTo,
         hiddenCats,
       }),
-    [candidates, tagFilters, markFilters, search, dateFrom, dateTo, hiddenCats],
+    [candidates, tagFilters, markFilters, search, searchAllDb, dateFrom, dateTo, hiddenCats],
   );
 
-  const hideProcessedInMain = unprocessedOnly && markFilters.size === 0;
+  // While searching the whole DB, show every match in one processable list.
+  const hideProcessedInMain =
+    !searchingAllDb && unprocessedOnly && markFilters.size === 0;
   const mainCards = hideProcessedInMain ? visible.filter((c) => !c.processed) : visible;
   const processedCards = hideProcessedInMain ? visible.filter((c) => c.processed) : [];
+
+  function resetReviewFilters() {
+    setUnprocessedOnly(true);
+    setTagFilters(new Set());
+    setMarkFilters(new Set());
+    setSearch("");
+    setSearchAllDb(false);
+    setDateFrom("");
+    setDateTo("");
+    setHiddenCats(showAllCategories());
+  }
 
   const showJob = job && job.id !== dismissedJobId;
   const markedCount = useMemo(() => candidates.filter(isMarked).length, [candidates]);
@@ -832,34 +850,64 @@ export default function App() {
               <button
                 type="button"
                 className="btn-quiet"
-                onClick={() => {
-                  setUnprocessedOnly(true);
-                  setTagFilters(new Set());
-                  setMarkFilters(new Set());
-                  setSearch("");
-                  setDateFrom("");
-                  setDateTo("");
-                  setHiddenCats(showAllCategories());
-                }}
+                onClick={resetReviewFilters}
               >
                 Clear
               </button>
               <span className="filter-count">{mainCards.length} shown</span>
             </div>
             <div className="keyword-filter-row">
-              <label className="keyword-filter">
-                <span className="keyword-filter-label">
-                  Keyword search over the candidate list on this tab (case-insensitive). Filters
-                  items already loaded from the database — not full newsletter text, and not
-                  semantic search.
-                </span>
+              <label className="keyword-scope">
+                <input
+                  type="checkbox"
+                  checked={searchAllDb}
+                  onChange={(e) => setSearchAllDb(e.target.checked)}
+                />
+                Search all candidates in the database
+              </label>
+              <p className="keyword-filter-label">
+                {searchAllDb
+                  ? "Keyword search (case-insensitive) across every extracted candidate in the database — topic, idea, snippet, and title. You can mark and process matches like the normal list."
+                  : "Keyword search (case-insensitive) over currently displayed results only — narrows the list already shown by the filters above (topic, idea, snippet, title)."}
+              </p>
+              <p className="keyword-filter-hint">
+                For semantic search over full newsletters, go to the{" "}
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    setView("search");
+                  }}
+                >
+                  Semantic search
+                </button>{" "}
+                tab.
+              </p>
+              <div className="keyword-filter-controls">
                 <input
                   type="search"
                   placeholder="Filter by topic, idea, snippet, or title…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
-              </label>
+                {keywordActive && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={resetReviewFilters}
+                  >
+                    Done with search
+                  </button>
+                )}
+              </div>
+              {searchingAllDb && (
+                <p className="keyword-filter-banner">
+                  Showing {visible.length} match{visible.length === 1 ? "" : "es"} across all
+                  candidates in the database. Process them here, then click Done with search to
+                  return to the default view.
+                </p>
+              )}
             </div>
           </>
         )}
@@ -921,14 +969,32 @@ export default function App() {
             </details>
           )}
 
-          <p className="section-label">{unprocessedOnly && markFilters.size === 0 ? "Unprocessed queue" : "Queue"}</p>
+          <p className="section-label">
+            {searchingAllDb
+              ? "Keyword search results"
+              : unprocessedOnly && markFilters.size === 0
+                ? "Unprocessed queue"
+                : "Queue"}
+          </p>
           <main id="candidate-list">
             {mainCards.length === 0 ? (
               <div className="empty-queue">
-                {filtersAreDefault(
-                  { tagFilters, markFilters, search, dateFrom, dateTo, hiddenCats },
-                  categories,
-                )
+                {keywordActive
+                  ? searchingAllDb
+                    ? "No candidates in the database match that keyword."
+                    : "No displayed results match that keyword."
+                  : filtersAreDefault(
+                      {
+                        tagFilters,
+                        markFilters,
+                        search,
+                        searchAllDb,
+                        dateFrom,
+                        dateTo,
+                        hiddenCats,
+                      },
+                      categories,
+                    )
                   ? "No unprocessed candidates. New newsletters arrive in the dedicated inbox and are pulled in automatically each day — or click Sync inbox now to pull them straight away."
                   : "No candidates match these filters."}
               </div>
@@ -1673,12 +1739,11 @@ function SearchView({
   return (
     <>
       <section className="search-panel">
-        <h2>Ask a question across your emails</h2>
+        <h2>Semantic search over full newsletters</h2>
         <p className="search-intro">
-          Every newsletter in the range is read in batches by GPT-5.4, which quotes the
-          passages that bear on your question and says why each one is relevant. The search
-          covers the stored emails; anything new sitting in the dedicated inbox is pulled in
-          first.
+          Ask a question and GPT reads whole newsletters in batches, quoting the passages that
+          bear on it. This is semantic search over full email text — not the keyword filter on
+          the first tab. New forwards in the dedicated inbox are pulled in first when needed.
         </p>
         <form
           onSubmit={(e) => {

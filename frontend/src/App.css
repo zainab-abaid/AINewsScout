@@ -200,24 +200,53 @@ html { height: 100%; }
 .keyword-filter-row {
   padding: 0 0 .85rem;
   background: var(--bg);
-}
-.keyword-filter {
   display: grid;
-  gap: .3rem;
-  width: 100%;
+  gap: .4rem;
+}
+.keyword-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .85rem;
+  color: var(--ink);
+  font-weight: 650;
+  white-space: nowrap;
 }
 .keyword-filter-label {
   font-size: .78rem;
   color: var(--muted);
   line-height: 1.35;
+  margin: 0;
 }
-.keyword-filter input[type=search] {
-  width: 100%;
+.keyword-filter-hint {
+  font-size: .78rem;
+  color: var(--muted);
+  line-height: 1.35;
+  margin: 0;
+}
+.keyword-filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+}
+.keyword-filter-controls input[type=search] {
+  flex: 1 1 220px;
+  min-width: 180px;
   padding: .45rem .7rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
   background: #fff;
+}
+.keyword-filter-banner {
+  margin: 0;
+  padding: .55rem .75rem;
+  border-radius: 8px;
+  background: var(--strong-bg);
+  border-left: 3px solid var(--strong);
+  font-size: .85rem;
+  color: var(--ink);
 }
 .filter-count { color: var(--muted); font-size: .85rem; }
 .overview-strip {

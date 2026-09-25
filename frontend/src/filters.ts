@@ -9,6 +9,12 @@ export type FilterState = {
   tagFilters: Set<TagFilter>;
   markFilters: Set<MarkFilter>;
   search: string;
+  /**
+   * When true and `search` is non-empty, ignore the other filters and match
+   * every non-deleted candidate in the loaded DB list. When false, keyword
+   * only narrows the list already selected by tags / dates / categories.
+   */
+  searchAllDb: boolean;
   dateFrom: string;
   dateTo: string;
   /**
@@ -57,10 +63,22 @@ export function hideAllCategories(categories: Category[]): Set<string> {
   return new Set(allCategoryKeys(categories));
 }
 
+export function matchesKeyword(c: Candidate, search: string): boolean {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const blob = `${c.topic} ${c.main_idea} ${c.excerpt} ${c.email_title} ${c.notes}`.toLowerCase();
+  return blob.includes(q);
+}
+
 export function filterCandidates(candidates: Candidate[], state: FilterState): Candidate[] {
-  const q = state.search.trim().toLowerCase();
+  const q = state.search.trim();
+  const searchAll = state.searchAllDb && !!q;
+
   return candidates.filter((c) => {
     if (c.deleted) return false;
+    if (searchAll) {
+      return matchesKeyword(c, q);
+    }
     if (state.tagFilters.size > 0 && !state.tagFilters.has(c.tag_slug as TagFilter)) return false;
     if (state.markFilters.size > 0) {
       const hit =
@@ -70,11 +88,8 @@ export function filterCandidates(candidates: Candidate[], state: FilterState): C
     }
     if (state.dateFrom && c.date_iso && c.date_iso < state.dateFrom) return false;
     if (state.dateTo && c.date_iso && c.date_iso > state.dateTo) return false;
-    if (q) {
-      const blob = `${c.topic} ${c.main_idea} ${c.excerpt} ${c.email_title}`.toLowerCase();
-      if (!blob.includes(q)) return false;
-    }
     if (!isCategoryOn(state.hiddenCats, categoryKey(c.category_id))) return false;
+    if (q && !matchesKeyword(c, q)) return false;
     return true;
   });
 }
@@ -120,6 +135,7 @@ export function filtersAreDefault(state: FilterState, categories: Category[]): b
     state.tagFilters.size === 0 &&
     state.markFilters.size === 0 &&
     !state.search &&
+    !state.searchAllDb &&
     !state.dateFrom &&
     !state.dateTo &&
     allCategoriesOn(state.hiddenCats, categories)
