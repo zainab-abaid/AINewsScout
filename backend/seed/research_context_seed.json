@@ -1,0 +1,157 @@
+{
+  "probes": [
+    {
+      "name": "Custom RAG versus managed RAG",
+      "description": "We compared a custom RAG pipeline with managed RAG approaches for question answering over technical PDFs. The main idea was to test whether control over parsing, chunking, retrieval and reranking could outperform convenient off-the-shelf configurations."
+    },
+    {
+      "name": "Reinforcement fine-tuning with limited data",
+      "description": "We tested Amazon Bedrock Reinforcement Fine-Tuning to understand whether reinforcement-based model improvement could work with less data and when it may be worth using. This was model-improvement research, but future training topics are mainly relevant when they connect clearly to agent or GenAI application engineering."
+    },
+    {
+      "name": "Vector RAG versus agentic search versus long-context prompting",
+      "description": "We compared three ways of answering questions over source-code repositories: vector RAG, an agent that searched the filesystem, and putting a large codebase directly into a long context window. We examined accuracy, latency, scaling behaviour and what happened as the search space grew."
+    },
+    {
+      "name": "Where to optimise a RAG pipeline",
+      "description": "We ran controlled comparisons of RAG components, especially chunking and reranking strategies, over a technical-document Q&A workload. A key interest was whether preserving document structure and hierarchy improved retrieval and answer quality."
+    },
+    {
+      "name": "Prompt compression in enterprise document Q&A",
+      "description": "We tested LLMLingua-2 on long RAG prompts to see whether reducing tokens improved cost and latency without damaging accuracy. Compression reduced token volume but removed useful structure, lowered accuracy and introduced extra processing cost and latency."
+    },
+    {
+      "name": "PDF-to-Markdown parser benchmark",
+      "description": "We benchmarked multiple PDF parsing approaches across different document types and structural quality dimensions. The focus was not merely text extraction, but preservation of hierarchy, reading order, tables, figures and code needed by downstream RAG and agentic-search systems."
+    },
+    {
+      "name": "GenieParse",
+      "description": "We built an open-source PDF-to-Markdown accelerator combining OCR with targeted post-processing for headings, tables, figures, code and cleanup. The idea was that document parsing should be treated as a first-class engineering layer rather than a generic preprocessing step."
+    },
+    {
+      "name": "Recursive Language Models versus RAG",
+      "description": "We compared DSPy-style Recursive Language Models with a basic vector RAG pipeline for code and technical-document Q&A. RLM produced higher accuracy on complex or sparse questions, but at substantially greater cost and latency, highlighting the importance of context assembly and workload fit."
+    },
+    {
+      "name": "Hallucination-detection tooling",
+      "description": "We compared tools and methods for detecting hallucinations in generated answers, including UpTrain, using an evaluation set with known outcomes. The broader interest was practical, measurable evaluation tooling rather than general commentary about hallucinations."
+    },
+    {
+      "name": "Multi-document RAG strategies",
+      "description": "We investigated approaches for answering questions that require evidence across multiple documents rather than retrieving one isolated chunk. The focus was on retrieval and synthesis strategies that can be implemented and compared experimentally."
+    },
+    {
+      "name": "Agentic search and DCI-Agent-style retrieval",
+      "description": "We explored agent-driven search methods that iteratively inspect and navigate information instead of relying only on one vector-retrieval step. We were interested in whether active search improved answer accuracy, and what latency and cost trade-offs it introduced."
+    },
+    {
+      "name": "RAG architecture comparisons",
+      "description": "We compared alternative RAG system designs and the practical trade-offs between them. The recurring question was which architecture is most appropriate for a particular corpus, query type, accuracy requirement and production constraint."
+    },
+    {
+      "name": "Supervised fine-tuning and reinforcement learning for tool use",
+      "description": "We experimented with SFT/RL workflows on open models such as Qwen or Mistral and evaluated whether tool-calling behaviour improved. This is relevant as precedent for hands-on agent learning and evaluation, not as an instruction to prioritise generic foundation-model tuning."
+    },
+    {
+      "name": "Quantity take-off from construction documents",
+      "description": "We investigated using GenAI and document-processing methods to extract construction quantities from complex documents. This represented interest in measurable, document-heavy applied AI workflows with difficult tables, layouts and domain-specific outputs."
+    },
+    {
+      "name": "LLM routing for coding harnesses",
+      "description": "We built a proof of concept over the Pi.dev open harness that classifies coding tasks and routes them into model capability tiers. The work examined deterministic routing rules, task complexity, cost, latency and how a router could sit behind a company-controlled gateway.\n\n---"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "GenAI Evaluation Guide",
+      "description": "A repeatable evaluation framework covering application and model quality, retrieval, tool calls, memory, agent steps, safety, performance, cost and capability fit. New evaluation tools, benchmarks and trace-analysis techniques are especially relevant when they can strengthen this framework."
+    },
+    {
+      "name": "Agentic RAG reference architecture",
+      "description": "A reusable architecture for agents that search and reason across multiple information sources. Candidate tools or methods that improve orchestration, retrieval, verification, memory or evaluation may extend this work."
+    },
+    {
+      "name": "Enterprise harness and control-plane direction",
+      "description": "Current R&D is shaping an enterprise layer around coding agents and open harnesses. It includes shared skills and workflows, policies, hooks, verification, monitoring, auditability, routing, budgets, escalation, credentials, dashboards and trace-driven improvement.\n\n---"
+    }
+  ],
+  "priority_areas": [
+    {
+      "name": "Harness engineering and AI development agents",
+      "description": "Coding-agent harnesses, open harnesses, plugins, skills, subagents, hooks, MCP integrations, reusable workflows, context files, policy files, verification steps and methods for making AI-assisted development more reliable."
+    },
+    {
+      "name": "Enterprise control over AI development workflows",
+      "description": "Control planes, governance, policy enforcement, audit trails, shared resources, approved workflows, credential centralisation, access control, developer budgets, escalation, dashboards and organisation-wide measurement of AI-assisted engineering."
+    },
+    {
+      "name": "LLM gateways and model routing",
+      "description": "Model routers, capability classification, cheapest-capable-model routing, fallback, escalation, privacy and eligibility rules, context-window constraints, budget enforcement, caching-aware routing and evaluation of routing decisions on end-to-end task outcomes."
+    },
+    {
+      "name": "Inference engineering",
+      "description": "Speculative decoding, serving systems, batching, caching, quantisation, inference optimisation, local or private model serving, latency/cost engineering and tools that improve practical model execution. A speculative-decoding experiment is already planned."
+    },
+    {
+      "name": "Comparing LLM routers",
+      "description": "Frameworks, algorithms and benchmarks for routing requests among multiple models are an explicit planned probe area. We are interested in router quality, calibration, task-success impact, full-session cost, latency, model onboarding and deterministic enterprise constraints."
+    },
+    {
+      "name": "GenAI application and agent evaluation",
+      "description": "Evaluation libraries, test-generation methods, LLM judges, deterministic evaluators, benchmarks, observability systems, trace analysis, trajectory evaluation, tool-call evaluation, memory evaluation, retrieval evaluation, regression testing, failure taxonomies and production feedback loops."
+    },
+    {
+      "name": "Trace-driven improvement over time",
+      "description": "Methods that turn agent traces and failures into reusable rules, skills, policies, automated checks, deterministic guardrails, regression tests or training data. Especially relevant are approaches that progressively replace expensive LLM checks with cheaper deterministic checks."
+    },
+    {
+      "name": "RAG, retrieval and agentic search",
+      "description": "New retrieval libraries, rerankers, indexes, hybrid search, structured retrieval, graph retrieval, multi-document reasoning, code search, active/agentic search, recursive context exploration and practical comparisons among retrieval architectures."
+    },
+    {
+      "name": "PDF parsing and intelligent document processing",
+      "description": "PDF-to-Markdown systems, OCR, layout analysis, table extraction, figure handling, reading order, structure preservation, document benchmarks and downstream effects on RAG or agents."
+    },
+    {
+      "name": "Agent memory and context management",
+      "description": "Short- and long-term agent memory, episodic or semantic memory, memory stores, retrieval policies, context compression, context selection, durable state, cross-session consistency and evaluation of memory usefulness."
+    },
+    {
+      "name": "Context engineering",
+      "description": "Prompt and context construction, long-context methods, recursive language models, context compression, dynamic context loading, repository navigation and techniques for selecting or organising information before an LLM call."
+    },
+    {
+      "name": "Guardrails, verification and AI system reliability",
+      "description": "Policy engines, structured checks, runtime constraints, output verification, secure tool use, permissions, sandboxing, deterministic validation and methods that make agents or GenAI applications safer and more predictable."
+    },
+    {
+      "name": "Shared enterprise AI resources",
+      "description": "Repositories and distribution systems for prompts, skills, plugins, MCP configurations, workflows, evaluation suites and reusable engineering practices that teams can push to and pull from their development harnesses."
+    },
+    {
+      "name": "GenAI observability and LLMOps",
+      "description": "Tracing, dashboards, production monitoring, cost and latency analysis, quality drift, experiment tracking, prompt/version management and operational tooling for LLM applications and agents."
+    },
+    {
+      "name": "Synthetic data and evaluation-data creation",
+      "description": "Tools and methods for creating representative test sets, adversarial cases, agent tasks, ground truth and regression suites, especially where quality can be measured."
+    },
+    {
+      "name": "Practical reinforcement learning for agents",
+      "description": "RL libraries, reward design, trace-based learning, tool-use training and agent improvement are relevant when they enable an accessible hands-on experiment. Generic pretraining or fine-tuning news without an application-engineering connection remains low priority."
+    },
+    {
+      "name": "Multimodal and document-centric AI systems",
+      "description": "Tools and methods for combining text, images, tables, diagrams, audio or video when they support a concrete application or measurable experiment rather than a general product announcement.\n\n---"
+    }
+  ],
+  "not_useful": [
+    "funding, valuation, acquisition or market dynamics",
+    "executive or company news",
+    "broad AI predictions or opinion",
+    "generic model launches and leaderboard claims",
+    "product marketing without enough technical access or detail",
+    "regulation or policy without a concrete technical experimentation angle; or",
+    "model tuning that has no clear connection to agents, GenAI applications, tooling or evaluation"
+  ]
+}

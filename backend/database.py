@@ -7,7 +7,20 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.config import DB_PATH, ensure_data_dir
-from backend.db import AppSetting, Category, Candidate, Email, IdeaSearch, IdeaSearchHit, Job  # noqa: F401
+from backend.db import (  # noqa: F401
+    AppSetting,
+    Category,
+    Candidate,
+    Email,
+    IdeaSearch,
+    IdeaSearchHit,
+    Job,
+    LlmCallLog,
+    ResearchArtifact,
+    ResearchNotUseful,
+    ResearchPriority,
+    ResearchProbe,
+)
 from backend.schemas import DEFAULT_CATEGORIES
 
 engine = None
@@ -68,6 +81,9 @@ def init_db() -> None:
             if name not in existing:
                 session.add(Category(name=name, is_default=True, sort_order=i))
         session.commit()
+    from backend.services.research_context import seed_research_context_if_empty
+
+    seed_research_context_if_empty()
 
 
 @contextmanager

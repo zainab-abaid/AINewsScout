@@ -15,7 +15,9 @@ Optimise for recall of **distinct** technical items. It is better to include a p
 You will receive:
 
 1. one email, as Markdown (headers plus body);
-2. the Genie research context file (`01_genie_research_context.md`).
+2. the Genie research context (previous probes, related artifacts, current
+   higher-priority research areas, and what is generally not useful), assembled
+   from the live database and included in your instructions.
 
 Never use any other email. Never combine several emails in one run. Do not browse the web. Do not invent availability, code, datasets or capabilities not stated in the email.
 
@@ -47,7 +49,7 @@ Every retained candidate must receive exactly one tag.
 
 Use when the item:
 
-- matches a current higher-priority Genie area in the context file; and
+- matches a current higher-priority Genie area in the research context; and
 - has a plausible hands-on path, such as trying a tool, running code, reproducing a method, comparing approaches or measuring a claim.
 
 This tag takes precedence over `STRONG CANDIDATE`.

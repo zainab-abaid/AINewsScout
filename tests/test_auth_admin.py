@@ -1,4 +1,4 @@
-"""Role tokens, research-context admin saves, and category deprecate."""
+"""Role tokens, research-context admin APIs, and category deprecate."""
 
 from __future__ import annotations
 
@@ -9,19 +9,12 @@ from tests.conftest import TEST_ADMIN_TOKEN, TEST_ANALYST_TOKEN
 
 def test_viewer_cannot_patch_candidates(client: TestClient):
     c = client.get("/api/candidates?status=all").json()[0]
-    res = client.patch(
-        f"/api/candidates/{c['id']}",
-        json={"important": True},
-        headers={"X-Access-Token": ""},
-    )
-    # Empty header still sends analyst from fixture default — override by
-    # rebuilding request without the fixture header.
     bare = TestClient(client.app)
     res = bare.patch(f"/api/candidates/{c['id']}", json={"important": True})
     assert res.status_code == 403
 
 
-def test_unlock_and_admin_research_context(client: TestClient, monkeypatch):
+def test_unlock_and_admin_research_context(client: TestClient):
     bare = TestClient(client.app)
     status = bare.get("/api/auth/status").json()
     assert status["role"] == "viewer"
@@ -39,32 +32,25 @@ def test_unlock_and_admin_research_context(client: TestClient, monkeypatch):
     assert ctx.status_code == 200
     body = ctx.json()
     assert "priority_areas" in body
-    assert "past_probes" in body
+    assert "probes" in body
+    assert "artifacts" in body
     assert "not_useful" in body
+    assert "prompt_preview" in body
+    assert "Previous Genie probes" in body["prompt_preview"]
 
-    saved = bare.put(
-        "/api/admin/research-context",
+    created = bare.post(
+        "/api/admin/priorities",
         headers=headers,
-        json={
-            "priority_areas": [{"name": "Agents", "description": "Hands-on agent work"}],
-            "past_probes": [{"name": "RAG probe", "description": "Done"}],
-            "not_useful": ["marketing fluff"],
-        },
+        json={"name": "Agents", "description": "Hands-on agent work"},
     )
-    assert saved.status_code == 200, saved.text
-    data = saved.json()
-    assert data["source"] == "database"
-    assert data["priority_areas"][0]["name"] == "Agents"
-
-    again = bare.get("/api/admin/research-context", headers=headers).json()
-    assert again["source"] == "database"
-    assert again["not_useful"] == ["marketing fluff"]
+    assert created.status_code == 200, created.text
+    assert created.json()["name"] == "Agents"
 
     # Analyst cannot edit research context.
-    denied = bare.put(
-        "/api/admin/research-context",
+    denied = bare.post(
+        "/api/admin/priorities",
         headers={"X-Access-Token": TEST_ANALYST_TOKEN},
-        json={"priority_areas": [], "past_probes": [], "not_useful": []},
+        json={"name": "Nope", "description": ""},
     )
     assert denied.status_code == 403
 
@@ -91,10 +77,33 @@ def test_category_deprecate_keeps_assignment(client: TestClient):
     assert dep.status_code == 200
     assert dep.json()["deprecated"] is True
 
-    # Old assignment survives deprecate.
     still = bare.get("/api/candidates?status=all").json()[0]
     assert still["category_id"] == cat["id"]
     assert still["category_name"] == "Legacy topic"
 
-    # Creating categories requires admin.
     assert bare.post("/api/categories", headers=analyst, json={"name": "Nope"}).status_code == 403
+
+
+def test_manual_probe_and_not_useful(client: TestClient):
+    bare = TestClient(client.app)
+    admin = {"X-Access-Token": TEST_ADMIN_TOKEN}
+    probe = bare.post(
+        "/api/admin/probes",
+        headers=admin,
+        json={"title": "Test probe", "description": "Two liner about a hands-on test."},
+    )
+    assert probe.status_code == 200, probe.text
+    pid = probe.json()["id"]
+
+    nu = bare.post(
+        "/api/admin/not-useful",
+        headers=admin,
+        json={"text": "pure market gossip"},
+    )
+    assert nu.status_code == 200
+
+    ctx = bare.get("/api/admin/research-context", headers=admin).json()
+    assert any(p["id"] == pid for p in ctx["probes"])
+    assert any(n["text"] == "pure market gossip" for n in ctx["not_useful"])
+    assert "Test probe" in ctx["prompt_preview"]
+    assert "pure market gossip" in ctx["prompt_preview"]

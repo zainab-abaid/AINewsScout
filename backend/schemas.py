@@ -148,17 +148,88 @@ class ResearchAreaIn(BaseModel):
     description: str = ""
 
 
+class ResearchItemOut(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    source_url: Optional[str] = None
+    source_kind: str = "manual"
+    sort_order: int = 0
+
+
+class ResearchItemIn(BaseModel):
+    title: str
+    description: str = ""
+
+
+class ResearchItemPatch(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ResearchPriorityOut(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    sort_order: int = 0
+
+
+class ResearchPriorityIn(BaseModel):
+    name: str
+    description: str = ""
+
+
+class ResearchPriorityPatch(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ResearchNotUsefulOut(BaseModel):
+    id: int
+    text: str
+    sort_order: int = 0
+
+
+class ResearchNotUsefulIn(BaseModel):
+    text: str
+
+
 class ResearchContextOut(BaseModel):
-    priority_areas: list[ResearchAreaIn] = Field(default_factory=list)
-    past_probes: list[ResearchAreaIn] = Field(default_factory=list)
-    not_useful: list[str] = Field(default_factory=list)
-    source: str = "skill_file"
+    probes: list[ResearchItemOut] = Field(default_factory=list)
+    artifacts: list[ResearchItemOut] = Field(default_factory=list)
+    priority_areas: list[ResearchPriorityOut] = Field(default_factory=list)
+    not_useful: list[ResearchNotUsefulOut] = Field(default_factory=list)
+    source: str = "database"
+    # Live preview of what the extractor currently receives as research context.
+    prompt_preview: str = ""
 
 
-class ResearchContextIn(BaseModel):
-    priority_areas: list[ResearchAreaIn] = Field(default_factory=list)
-    past_probes: list[ResearchAreaIn] = Field(default_factory=list)
-    not_useful: list[str] = Field(default_factory=list)
+class UrlIngestIn(BaseModel):
+    url: str
+
+
+class IngestPreviewOut(BaseModel):
+    title: str
+    description: str
+    source_url: Optional[str] = None
+    source_kind: str
+
+
+class LlmLogSummaryOut(BaseModel):
+    id: int
+    kind: str
+    email_id: Optional[int] = None
+    model: str = ""
+    created_at: str = ""
+    input_preview: str = ""
+    output_preview: str = ""
+
+
+class LlmLogDetailOut(LlmLogSummaryOut):
+    instructions_text: str = ""
+    input_text: str = ""
+    output_text: str = ""
+    meta: dict = Field(default_factory=dict)
 
 
 class AuthUnlockIn(BaseModel):

@@ -9,11 +9,52 @@ export type AuthStatus = {
 
 export type ResearchArea = { name: string; description: string };
 
+export type ResearchItem = {
+  id: number;
+  title: string;
+  description: string;
+  source_url: string | null;
+  source_kind: string;
+  sort_order: number;
+};
+
+export type ResearchPriority = {
+  id: number;
+  name: string;
+  description: string;
+  sort_order: number;
+};
+
+export type ResearchNotUseful = {
+  id: number;
+  text: string;
+  sort_order: number;
+};
+
 export type ResearchContext = {
-  priority_areas: ResearchArea[];
-  past_probes: ResearchArea[];
-  not_useful: string[];
+  probes: ResearchItem[];
+  artifacts: ResearchItem[];
+  priority_areas: ResearchPriority[];
+  not_useful: ResearchNotUseful[];
   source: string;
+  prompt_preview: string;
+};
+
+export type LlmLogSummary = {
+  id: number;
+  kind: string;
+  email_id: number | null;
+  model: string;
+  created_at: string;
+  input_preview: string;
+  output_preview: string;
+};
+
+export type LlmLogDetail = LlmLogSummary & {
+  instructions_text: string;
+  input_text: string;
+  output_text: string;
+  meta: Record<string, unknown>;
 };
 
 export type PublishStatus = {
@@ -195,6 +236,25 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function httpForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { ...authHeaders() },
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail || JSON.stringify(body);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<T>;
+}
+
 export const api = {
   authStatus: () => http<AuthStatus>("/api/auth/status"),
   unlock: (token: string) =>
@@ -203,11 +263,82 @@ export const api = {
       body: JSON.stringify({ token }),
     }),
   researchContext: () => http<ResearchContext>("/api/admin/research-context"),
-  saveResearchContext: (body: Omit<ResearchContext, "source">) =>
-    http<ResearchContext>("/api/admin/research-context", {
-      method: "PUT",
+  createPriority: (body: { name: string; description?: string }) =>
+    http<ResearchPriority>("/api/admin/priorities", {
+      method: "POST",
       body: JSON.stringify(body),
     }),
+  patchPriority: (id: number, body: { name?: string; description?: string }) =>
+    http<ResearchPriority>(`/api/admin/priorities/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deletePriority: (id: number) =>
+    http<{ ok: boolean }>(`/api/admin/priorities/${id}`, { method: "DELETE" }),
+  createProbe: (body: { title: string; description?: string }) =>
+    http<ResearchItem>("/api/admin/probes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  patchProbe: (id: number, body: { title?: string; description?: string }) =>
+    http<ResearchItem>(`/api/admin/probes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteProbe: (id: number) =>
+    http<{ ok: boolean }>(`/api/admin/probes/${id}`, { method: "DELETE" }),
+  ingestProbeUrl: (url: string) =>
+    http<{ title: string; description: string; source_url: string | null; source_kind: string }>(
+      "/api/admin/probes/ingest-url",
+      { method: "POST", body: JSON.stringify({ url }) },
+    ),
+  ingestProbePdf: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return httpForm<{
+      title: string;
+      description: string;
+      source_url: string | null;
+      source_kind: string;
+    }>("/api/admin/probes/ingest-pdf", form);
+  },
+  createArtifact: (body: { title: string; description?: string }) =>
+    http<ResearchItem>("/api/admin/artifacts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  patchArtifact: (id: number, body: { title?: string; description?: string }) =>
+    http<ResearchItem>(`/api/admin/artifacts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteArtifact: (id: number) =>
+    http<{ ok: boolean }>(`/api/admin/artifacts/${id}`, { method: "DELETE" }),
+  ingestArtifactUrl: (url: string) =>
+    http<{ title: string; description: string; source_url: string | null; source_kind: string }>(
+      "/api/admin/artifacts/ingest-url",
+      { method: "POST", body: JSON.stringify({ url }) },
+    ),
+  createNotUseful: (text: string) =>
+    http<ResearchNotUseful>("/api/admin/not-useful", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+  patchNotUseful: (id: number, text: string) =>
+    http<ResearchNotUseful>(`/api/admin/not-useful/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ text }),
+    }),
+  deleteNotUseful: (id: number) =>
+    http<{ ok: boolean }>(`/api/admin/not-useful/${id}`, { method: "DELETE" }),
+  llmLogs: (params: { kind?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.kind) q.set("kind", params.kind);
+    if (params.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return http<LlmLogSummary[]>(`/api/admin/llm-logs${qs ? `?${qs}` : ""}`);
+  },
+  llmLog: (id: number) => http<LlmLogDetail>(`/api/admin/llm-logs/${id}`),
   stats: () => http<Stats>("/api/stats"),
   candidates: (params: Record<string, string> = {}) => {
     const q = new URLSearchParams(params);

@@ -699,7 +699,7 @@ button.linkish {
   color: var(--muted);
   padding: .2rem .4rem;
 }
-.admin-view { display: grid; gap: 1.25rem; padding-top: .5rem; }
+.admin-view { display: grid; gap: .65rem; padding-top: .5rem; max-width: 820px; }
 .admin-banner {
   background: #f8e8e8;
   border: 1px solid #e2c4c4;
@@ -707,34 +707,130 @@ button.linkish {
   padding: .85rem 1rem;
   font-size: .92rem;
   line-height: 1.45;
+  margin-bottom: .35rem;
 }
 .admin-saved { color: var(--important); font-size: .9rem; margin: 0; }
-.admin-section {
+.admin-panel {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 1rem 1.1rem;
+  overflow: hidden;
 }
-.admin-section h3 { margin: 0 0 .75rem; font-size: 1rem; }
-.admin-area-row, .admin-bullet-row {
-  display: grid;
+.admin-panel-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: .85rem 1rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.admin-panel.open .admin-panel-head { border-bottom: 1px solid var(--border); }
+.admin-panel-title { flex: 1 1 auto; }
+.admin-panel-count {
+  font-size: .78rem;
+  font-weight: 650;
+  color: var(--muted);
+  background: var(--track);
+  border-radius: 999px;
+  padding: .1rem .5rem;
+}
+.admin-panel-chevron { color: var(--muted); font-size: .85rem; }
+.admin-panel-body { padding: .85rem 1rem 1.1rem; display: grid; gap: .85rem; }
+.admin-panel-lead { margin: 0; font-size: .88rem; color: var(--muted); }
+.admin-item-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+.admin-item-list details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .45rem .65rem .55rem;
+  background: #faf8f4;
+}
+.admin-item-list summary {
+  cursor: pointer;
+  font-weight: 650;
+  font-size: .92rem;
+  display: flex;
+  align-items: center;
   gap: .45rem;
-  margin-bottom: .85rem;
-  padding-bottom: .85rem;
-  border-bottom: 1px solid var(--border);
 }
-.admin-area-row input, .admin-area-row textarea, .admin-bullet-row input {
+.admin-item-list details[open] summary { margin-bottom: .55rem; }
+.admin-item-list textarea,
+.admin-item-list input,
+.admin-add-form input,
+.admin-add-form textarea,
+.admin-ingest input,
+.admin-inline-row input {
   font: inherit;
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: .45rem .6rem;
+  margin: .35rem 0;
 }
-.admin-save-row { display: flex; gap: .75rem; align-items: center; }
-.admin-cat-warn { font-size: .88rem; color: var(--muted); margin: 0 0 .75rem; }
+.admin-source-tag {
+  font-size: .72rem;
+  font-weight: 650;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .05rem .4rem;
+}
+.admin-add-form, .admin-ingest { display: grid; gap: .45rem; }
+.admin-ingest-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.admin-ingest-row input { flex: 1 1 220px; margin: 0; }
+.admin-file {
+  display: grid;
+  gap: .3rem;
+  font-size: .82rem;
+  color: var(--muted);
+  font-weight: 650;
+}
+.admin-inline-row {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+}
+.admin-inline-row input { margin: 0; }
+.admin-pre {
+  margin: 0;
+  max-height: 28rem;
+  overflow: auto;
+  background: #faf8f4;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .75rem .85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.admin-log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+.admin-log-row {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: #faf8f4;
+  border-radius: 8px;
+  padding: .55rem .7rem;
+  display: grid;
+  gap: .2rem;
+}
+.admin-log-kind { font-weight: 650; font-size: .82rem; }
+.admin-log-when { font-size: .75rem; color: var(--muted); }
+.admin-log-preview { font-size: .82rem; color: var(--muted); }
+.admin-log-modal { max-width: min(720px, 94vw); max-height: 88vh; overflow: auto; }
+.admin-log-section { margin: .85rem 0; }
+.admin-log-section h3 { margin: 0 0 .4rem; font-size: .92rem; }
 .admin-cat-list {
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0;
   padding: 0;
 }
 .admin-cat-list li {
@@ -747,3 +843,11 @@ button.linkish {
   font-size: .92rem;
 }
 .admin-cat-list li.deprecated { color: var(--muted); }
+
+/* Replace older flat admin section styles if still referenced */
+.admin-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+}

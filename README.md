@@ -9,16 +9,16 @@ Each person clones the repo and runs it locally. Emails, probe ideas, and your m
 | Data | Location |
 | --- | --- |
 | Emails, probe candidates, your marks, categories, job progress | `data/probe_scout.sqlite` (created on first run, gitignored) |
-| Admin overrides for research priorities / past probes / not-useful | Same SQLite DB (`AppSetting`); skill file is the fallback default |
+| Research context (probes, artifacts, priorities, not-useful) + LLM call logs | SQLite tables (seeded once from `backend/seed/research_context_seed.json`) |
 | OpenAI key, IMAP inbox credentials, role tokens | `.env` (gitignored) |
 
 Nothing in `data/` or `.env` is ever committed. Historic emails already in the database stay there permanently — sync only adds new messages.
 
-### Skills vs admin edits
+### Research context (database)
 
-Committed files under `skills/` are the **defaults** (and versioned documentation of the extractor behaviour). When an admin saves research priorities, past probes, or the not-useful list in the Admin tab, those values are stored in the database and injected into new extraction prompts. **The skill files on disk are not rewritten**, so deploys and git pulls do not wipe admin edits, and you can still diff the original skill.
+Past probes, related artifacts, higher-priority research areas, and the not-useful list live in SQLite. The extractor prompt is composed from those rows on every run. Seed content ships in `backend/seed/research_context_seed.json` for empty databases. Extractor rules remain in `skills/02_…` and `skills/03_…`.
 
-**Admin changes never re-analyse old newsletters** and never wipe marks or comments. New categories and deprecated categories apply to **new extractions only**; old candidates keep their existing category. There is no admin “delete historic marks” path yet.
+**Admin changes never re-analyse old newsletters** and never wipe marks or comments. New categories and deprecated categories apply to **new extractions only**; old candidates keep their existing category.
 
 ### Roles
 
@@ -145,11 +145,11 @@ Ask your own question across whole newsletters already in the database (historic
 - Findings can be **Add to marked items** as probe candidates.
 - Past searches are reopenable; deleting a running search cancels it.
 
-Prompts live in `skills/` (`01` research context default, `02` single-email extractor, `03` idea search). Admins override the research-context sections in the database without editing those files.
+Extractor / search skills live in `skills/` (`02` single-email extractor, `03` idea search). Research context is database-backed.
 
 ### Admin
 
-Edit priority research areas, past probes, and the not-useful list; add or deprecate categories. The UI warns that changes apply to **new** newsletters only.
+Collapsible panels for priorities, past probes (manual / PDF / URL), artifacts (manual / URL), not-useful list, categories, live prompt preview, and LLM call logs. Changes apply to **new** newsletters only.
 
 ## Layout
 

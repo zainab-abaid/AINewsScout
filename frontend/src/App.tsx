@@ -11,8 +11,12 @@ import {
   type IdeaSearchDetail,
   type Job,
   type PublishStatus,
-  type ResearchArea,
+  type LlmLogDetail,
+  type LlmLogSummary,
   type ResearchContext,
+  type ResearchItem,
+  type ResearchNotUseful,
+  type ResearchPriority,
   type Role,
   type SearchHit,
   type SearchPreview,
@@ -2462,59 +2466,62 @@ function SignInModal({
   );
 }
 
-function AreaEditor({
+function AdminPanel({
+  id,
   title,
-  items,
-  onChange,
+  count,
+  openId,
+  setOpenId,
+  children,
 }: {
+  id: string;
   title: string;
-  items: ResearchArea[];
-  onChange: (next: ResearchArea[]) => void;
+  count?: number;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  children: React.ReactNode;
 }) {
+  const open = openId === id;
   return (
-    <section className="admin-section">
-      <h3>{title}</h3>
-      {items.map((item, i) => (
-        <div key={i} className="admin-area-row">
-          <input
-            value={item.name}
-            placeholder="Name"
-            aria-label={`${title} name ${i + 1}`}
-            onChange={(e) => {
-              const next = items.slice();
-              next[i] = { ...item, name: e.target.value };
-              onChange(next);
-            }}
-          />
-          <textarea
-            rows={3}
-            value={item.description}
-            placeholder="Description"
-            aria-label={`${title} description ${i + 1}`}
-            onChange={(e) => {
-              const next = items.slice();
-              next[i] = { ...item, description: e.target.value };
-              onChange(next);
-            }}
-          />
-          <button
-            type="button"
-            className="btn-quiet"
-            onClick={() => onChange(items.filter((_, j) => j !== i))}
-          >
-            Remove
-          </button>
-        </div>
-      ))}
+    <section className={`admin-panel ${open ? "open" : ""}`}>
       <button
         type="button"
-        className="btn-quiet"
-        onClick={() => onChange([...items, { name: "", description: "" }])}
+        className="admin-panel-head"
+        aria-expanded={open}
+        onClick={() => setOpenId(open ? null : id)}
       >
-        + Add
+        <span className="admin-panel-title">{title}</span>
+        {typeof count === "number" ? <span className="admin-panel-count">{count}</span> : null}
+        <span className="admin-panel-chevron" aria-hidden>
+          {open ? "▾" : "▸"}
+        </span>
       </button>
+      {open && <div className="admin-panel-body">{children}</div>}
     </section>
   );
+}
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="info-tip">
+      <button type="button" className="info-tip-btn" aria-label="More information">
+        i
+      </button>
+      <span className="info-tip-bubble" role="tooltip">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function formatJsonish(text: string): string {
+  const t = text.trim();
+  if (!t) return "";
+  try {
+    return JSON.stringify(JSON.parse(t), null, 2);
+  } catch {
+    return text;
+  }
 }
 
 function AdminView({
@@ -2529,31 +2536,49 @@ function AdminView({
   error: string;
 }) {
   const [ctx, setCtx] = useState<ResearchContext | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [savedNote, setSavedNote] = useState("");
+  const [openPanel, setOpenPanel] = useState<string | null>("priorities");
+  const [note, setNote] = useState("");
   const [newCat, setNewCat] = useState("");
+  const [logs, setLogs] = useState<LlmLogSummary[]>([]);
+  const [logDetail, setLogDetail] = useState<LlmLogDetail | null>(null);
+  const [logKind, setLogKind] = useState("extract");
+  const [busy, setBusy] = useState(false);
+
+  // Manual add forms
+  const [priName, setPriName] = useState("");
+  const [priDesc, setPriDesc] = useState("");
+  const [probeTitle, setProbeTitle] = useState("");
+  const [probeDesc, setProbeDesc] = useState("");
+  const [probeUrl, setProbeUrl] = useState("");
+  const [artTitle, setArtTitle] = useState("");
+  const [artDesc, setArtDesc] = useState("");
+  const [artUrl, setArtUrl] = useState("");
+  const [nuText, setNuText] = useState("");
+
+  const reload = useCallback(async () => {
+    const next = await api.researchContext();
+    setCtx(next);
+  }, []);
 
   useEffect(() => {
-    api
-      .researchContext()
-      .then(setCtx)
-      .catch((e: Error) => setError(e.message));
-  }, [setError]);
+    reload().catch((e: Error) => setError(e.message));
+  }, [reload, setError]);
 
-  async function saveContext() {
-    if (!ctx || busy) return;
+  useEffect(() => {
+    if (openPanel !== "logs") return;
+    api
+      .llmLogs({ kind: logKind || undefined, limit: 40 })
+      .then(setLogs)
+      .catch((e: Error) => setError(e.message));
+  }, [openPanel, logKind, setError]);
+
+  async function run(action: () => Promise<unknown>, okMsg: string) {
     setBusy(true);
-    setSavedNote("");
+    setNote("");
     try {
-      const saved = await api.saveResearchContext({
-        priority_areas: ctx.priority_areas,
-        past_probes: ctx.past_probes,
-        not_useful: ctx.not_useful,
-      });
-      setCtx(saved);
-      setSavedNote(
-        "Saved. New newsletters will use this context — already analysed emails are unchanged.",
-      );
+      await action();
+      await reload();
+      setNote(okMsg);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -2565,7 +2590,7 @@ function AdminView({
   async function addCat() {
     const name = newCat.trim();
     if (!name) return;
-    try {
+    await run(async () => {
       const cat = await api.addCategory(name);
       setCategories((prev) => {
         if (prev.some((c) => c.id === cat.id)) return prev;
@@ -2574,99 +2599,416 @@ function AdminView({
         );
       });
       setNewCat("");
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    }, "Category added. Applies to new extractions only.");
   }
 
   async function toggleDeprecated(cat: Category) {
-    try {
+    await run(async () => {
       const updated = await api.patchCategory(cat.id, { deprecated: !cat.deprecated });
       setCategories((prev) => prev.map((c) => (c.id === cat.id ? updated : c)));
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    }, "Category updated. Old assignments are unchanged.");
   }
 
   if (!ctx) {
     return <p className="job-idle">Loading research context…</p>;
   }
 
+  const ingestTip =
+    "Optional test feature: paste a blog/GitHub URL (or upload a PDF for probes) and the LLM drafts a title plus a 2–3 sentence description from the page text. Images and video are not supported. You can always type title and description manually instead.";
+
   return (
     <div className="admin-view">
       <div className="admin-banner" role="status">
-        <strong>Changes apply to new newsletters only.</strong> Editing priorities, past probes,
-        not-useful list, or categories does <em>not</em> re-analyse emails already in the database
-        and never wipes marks or comments. Deprecated categories stay on old items; only new
-        extractions skip them. There is no delete for historic marks yet.
+        <strong>Changes apply to new newsletters only.</strong> Editing research context or
+        categories does not re-analyse emails already in the database and never wipes marks or
+        comments. Open a panel below to edit that section.
       </div>
       {error && <p className="err">{error}</p>}
-      {savedNote && <p className="admin-saved">{savedNote}</p>}
-      <p className="meta">
-        Source: {ctx.source === "database" ? "saved overrides (database)" : "skills file default"}
-      </p>
+      {note && <p className="admin-saved">{note}</p>}
 
-      <AreaEditor
-        title="Current higher-priority research areas"
-        items={ctx.priority_areas}
-        onChange={(priority_areas) => setCtx({ ...ctx, priority_areas })}
-      />
-      <AreaEditor
+      <AdminPanel
+        id="priorities"
+        title="Higher-priority research areas"
+        count={ctx.priority_areas.length}
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <p className="admin-panel-lead">
+          Name and description are separate fields. Matching candidates can be tagged High
+          Priority when they also have a hands-on path.
+        </p>
+        <ul className="admin-item-list">
+          {ctx.priority_areas.map((p: ResearchPriority) => (
+            <li key={p.id}>
+              <details>
+                <summary>{p.name}</summary>
+                <textarea
+                  rows={4}
+                  defaultValue={p.description}
+                  aria-label={`${p.name} description`}
+                  onBlur={(e) => {
+                    if (e.target.value === p.description) return;
+                    run(
+                      () => api.patchPriority(p.id, { description: e.target.value }),
+                      "Priority updated.",
+                    );
+                  }}
+                />
+                <input
+                  defaultValue={p.name}
+                  aria-label={`${p.name} title`}
+                  onBlur={(e) => {
+                    if (e.target.value.trim() === p.name) return;
+                    run(
+                      () => api.patchPriority(p.id, { name: e.target.value }),
+                      "Priority renamed.",
+                    );
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busy}
+                  onClick={() =>
+                    run(() => api.deletePriority(p.id), "Priority removed from future prompts.")
+                  }
+                >
+                  Remove
+                </button>
+              </details>
+            </li>
+          ))}
+        </ul>
+        <form
+          className="admin-add-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!priName.trim()) return;
+            run(async () => {
+              await api.createPriority({ name: priName, description: priDesc });
+              setPriName("");
+              setPriDesc("");
+            }, "Priority added.");
+          }}
+        >
+          <input
+            value={priName}
+            onChange={(e) => setPriName(e.target.value)}
+            placeholder="Area name"
+            aria-label="New priority name"
+          />
+          <textarea
+            rows={2}
+            value={priDesc}
+            onChange={(e) => setPriDesc(e.target.value)}
+            placeholder="Description"
+            aria-label="New priority description"
+          />
+          <button type="submit" className="btn-primary" disabled={busy || !priName.trim()}>
+            Add area
+          </button>
+        </form>
+      </AdminPanel>
+
+      <AdminPanel
+        id="probes"
         title="Previous Genie probes"
-        items={ctx.past_probes}
-        onChange={(past_probes) => setCtx({ ...ctx, past_probes })}
-      />
-
-      <section className="admin-section">
-        <h3>Generally not useful</h3>
-        {ctx.not_useful.map((item, i) => (
-          <div key={i} className="admin-bullet-row">
+        count={ctx.probes.length}
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <p className="admin-panel-lead">
+          Short descriptions of past hands-on investigations.{" "}
+          <InfoTip text={ingestTip} />
+        </p>
+        <ul className="admin-item-list">
+          {ctx.probes.map((p: ResearchItem) => (
+            <li key={p.id}>
+              <details>
+                <summary>
+                  {p.title}
+                  {p.source_kind !== "manual" ? (
+                    <span className="admin-source-tag">{p.source_kind}</span>
+                  ) : null}
+                </summary>
+                <textarea
+                  rows={4}
+                  defaultValue={p.description}
+                  onBlur={(e) => {
+                    if (e.target.value === p.description) return;
+                    run(
+                      () => api.patchProbe(p.id, { description: e.target.value }),
+                      "Probe updated.",
+                    );
+                  }}
+                />
+                <input
+                  defaultValue={p.title}
+                  onBlur={(e) => {
+                    if (e.target.value.trim() === p.title) return;
+                    run(() => api.patchProbe(p.id, { title: e.target.value }), "Probe renamed.");
+                  }}
+                />
+                {p.source_url && <p className="meta">Source: {p.source_url}</p>}
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busy}
+                  onClick={() => run(() => api.deleteProbe(p.id), "Probe removed.")}
+                >
+                  Remove
+                </button>
+              </details>
+            </li>
+          ))}
+        </ul>
+        <form
+          className="admin-add-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!probeTitle.trim()) return;
+            run(async () => {
+              await api.createProbe({ title: probeTitle, description: probeDesc });
+              setProbeTitle("");
+              setProbeDesc("");
+            }, "Probe added manually.");
+          }}
+        >
+          <p className="field-label">Add manually</p>
+          <input
+            value={probeTitle}
+            onChange={(e) => setProbeTitle(e.target.value)}
+            placeholder="Title"
+          />
+          <textarea
+            rows={2}
+            value={probeDesc}
+            onChange={(e) => setProbeDesc(e.target.value)}
+            placeholder="2–3 sentence description"
+          />
+          <button type="submit" className="btn-primary" disabled={busy || !probeTitle.trim()}>
+            Add probe
+          </button>
+        </form>
+        <div className="admin-ingest">
+          <p className="field-label">
+            Or draft from a PDF / URL <InfoTip text={ingestTip} />
+          </p>
+          <div className="admin-ingest-row">
             <input
-              value={item}
-              aria-label={`Not useful ${i + 1}`}
-              onChange={(e) => {
-                const not_useful = ctx.not_useful.slice();
-                not_useful[i] = e.target.value;
-                setCtx({ ...ctx, not_useful });
-              }}
+              value={probeUrl}
+              onChange={(e) => setProbeUrl(e.target.value)}
+              placeholder="https://… blog or docs page"
+              aria-label="Probe source URL"
             />
             <button
               type="button"
-              className="btn-quiet"
+              className="btn-primary"
+              disabled={busy || !probeUrl.trim()}
               onClick={() =>
-                setCtx({
-                  ...ctx,
-                  not_useful: ctx.not_useful.filter((_, j) => j !== i),
-                })
+                run(async () => {
+                  await api.ingestProbeUrl(probeUrl.trim());
+                  setProbeUrl("");
+                }, "Probe drafted from URL and saved. Review the text in the list.")
               }
             >
-              Remove
+              Analyse URL
             </button>
           </div>
-        ))}
-        <button
-          type="button"
-          className="btn-quiet"
-          onClick={() => setCtx({ ...ctx, not_useful: [...ctx.not_useful, ""] })}
+          <label className="admin-file">
+            Upload PDF
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              disabled={busy}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                run(
+                  () => api.ingestProbePdf(file),
+                  "Probe drafted from PDF and saved. Review the text in the list.",
+                );
+              }}
+            />
+          </label>
+        </div>
+      </AdminPanel>
+
+      <AdminPanel
+        id="artifacts"
+        title="Related Genie artifacts"
+        count={ctx.artifacts.length}
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <p className="admin-panel-lead">
+          Guides, architectures, and other Genie work the scout should know about.{" "}
+          <InfoTip text={ingestTip} />
+        </p>
+        <ul className="admin-item-list">
+          {ctx.artifacts.map((a: ResearchItem) => (
+            <li key={a.id}>
+              <details>
+                <summary>
+                  {a.title}
+                  {a.source_kind !== "manual" ? (
+                    <span className="admin-source-tag">{a.source_kind}</span>
+                  ) : null}
+                </summary>
+                <textarea
+                  rows={4}
+                  defaultValue={a.description}
+                  onBlur={(e) => {
+                    if (e.target.value === a.description) return;
+                    run(
+                      () => api.patchArtifact(a.id, { description: e.target.value }),
+                      "Artifact updated.",
+                    );
+                  }}
+                />
+                <input
+                  defaultValue={a.title}
+                  onBlur={(e) => {
+                    if (e.target.value.trim() === a.title) return;
+                    run(
+                      () => api.patchArtifact(a.id, { title: e.target.value }),
+                      "Artifact renamed.",
+                    );
+                  }}
+                />
+                {a.source_url && <p className="meta">Source: {a.source_url}</p>}
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busy}
+                  onClick={() => run(() => api.deleteArtifact(a.id), "Artifact removed.")}
+                >
+                  Remove
+                </button>
+              </details>
+            </li>
+          ))}
+        </ul>
+        <form
+          className="admin-add-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!artTitle.trim()) return;
+            run(async () => {
+              await api.createArtifact({ title: artTitle, description: artDesc });
+              setArtTitle("");
+              setArtDesc("");
+            }, "Artifact added manually.");
+          }}
         >
-          + Add
-        </button>
-      </section>
+          <p className="field-label">Add manually</p>
+          <input
+            value={artTitle}
+            onChange={(e) => setArtTitle(e.target.value)}
+            placeholder="Title"
+          />
+          <textarea
+            rows={2}
+            value={artDesc}
+            onChange={(e) => setArtDesc(e.target.value)}
+            placeholder="2–3 sentence description"
+          />
+          <button type="submit" className="btn-primary" disabled={busy || !artTitle.trim()}>
+            Add artifact
+          </button>
+        </form>
+        <div className="admin-ingest">
+          <p className="field-label">
+            Or draft from a URL <InfoTip text={ingestTip} />
+          </p>
+          <div className="admin-ingest-row">
+            <input
+              value={artUrl}
+              onChange={(e) => setArtUrl(e.target.value)}
+              placeholder="https://… blog, GitHub, docs"
+              aria-label="Artifact source URL"
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={busy || !artUrl.trim()}
+              onClick={() =>
+                run(async () => {
+                  await api.ingestArtifactUrl(artUrl.trim());
+                  setArtUrl("");
+                }, "Artifact drafted from URL and saved.")
+              }
+            >
+              Analyse URL
+            </button>
+          </div>
+        </div>
+      </AdminPanel>
 
-      <div className="admin-save-row">
-        <button type="button" className="btn-primary" disabled={busy} onClick={saveContext}>
-          {busy ? "Saving…" : "Save research context"}
-        </button>
-      </div>
+      <AdminPanel
+        id="not-useful"
+        title="Generally not useful"
+        count={ctx.not_useful.length}
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <ul className="admin-item-list">
+          {ctx.not_useful.map((n: ResearchNotUseful) => (
+            <li key={n.id} className="admin-inline-row">
+              <input
+                defaultValue={n.text}
+                onBlur={(e) => {
+                  if (e.target.value.trim() === n.text) return;
+                  run(
+                    () => api.patchNotUseful(n.id, e.target.value),
+                    "Not-useful item updated.",
+                  );
+                }}
+              />
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={busy}
+                onClick={() => run(() => api.deleteNotUseful(n.id), "Item removed.")}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form
+          className="admin-add-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!nuText.trim()) return;
+            run(async () => {
+              await api.createNotUseful(nuText);
+              setNuText("");
+            }, "Item added.");
+          }}
+        >
+          <input
+            value={nuText}
+            onChange={(e) => setNuText(e.target.value)}
+            placeholder="e.g. funding or market dynamics"
+          />
+          <button type="submit" className="btn-primary" disabled={busy || !nuText.trim()}>
+            Add
+          </button>
+        </form>
+      </AdminPanel>
 
-      <section className="admin-section">
-        <h3>Categories</h3>
-        <p className="admin-cat-warn">
+      <AdminPanel
+        id="categories"
+        title="Categories"
+        count={categories.length}
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <p className="admin-panel-lead">
           New categories and deprecations affect <strong>new</strong> extractions only. Old
-          candidates keep their existing category. Prefer deprecating over deleting — there is no
-          wipe of historic assignments.
+          candidates keep their existing category.
         </p>
         <ul className="admin-cat-list">
           {categories.map((cat) => (
@@ -2675,7 +3017,12 @@ function AdminView({
                 {cat.name}
                 {cat.deprecated ? " · deprecated" : ""}
               </span>
-              <button type="button" className="btn-quiet" onClick={() => toggleDeprecated(cat)}>
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={busy}
+                onClick={() => toggleDeprecated(cat)}
+              >
                 {cat.deprecated ? "Restore for new mail" : "Deprecate for new mail"}
               </button>
             </li>
@@ -2694,11 +3041,108 @@ function AdminView({
             placeholder="New category name"
             aria-label="New category name"
           />
-          <button type="submit" disabled={!newCat.trim()}>
+          <button type="submit" disabled={busy || !newCat.trim()}>
             Add category
           </button>
         </form>
-      </section>
+      </AdminPanel>
+
+      <AdminPanel
+        id="prompt"
+        title="Live prompt preview"
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <p className="admin-panel-lead">
+          Exact research-context block currently composed for the extractor (from the database).
+        </p>
+        <pre className="admin-pre">{ctx.prompt_preview}</pre>
+      </AdminPanel>
+
+      <AdminPanel
+        id="logs"
+        title="LLM call logs"
+        count={logs.length}
+        openId={openPanel}
+        setOpenId={setOpenPanel}
+      >
+        <p className="admin-panel-lead">
+          Instructions, newsletter (or source text), and model output are stored separately for
+          each call.
+        </p>
+        <div className="segmented">
+          {[
+            { id: "extract", label: "Extractions" },
+            { id: "probe_ingest", label: "Probe ingest" },
+            { id: "artifact_ingest", label: "Artifact ingest" },
+            { id: "", label: "All" },
+          ].map((opt) => (
+            <button
+              key={opt.id || "all"}
+              type="button"
+              className={logKind === opt.id ? "on" : ""}
+              onClick={() => setLogKind(opt.id)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <ul className="admin-log-list">
+          {logs.map((log) => (
+            <li key={log.id}>
+              <button
+                type="button"
+                className="admin-log-row"
+                onClick={() =>
+                  api
+                    .llmLog(log.id)
+                    .then(setLogDetail)
+                    .catch((e: Error) => setError(e.message))
+                }
+              >
+                <span className="admin-log-kind">{log.kind}</span>
+                <span className="admin-log-when">
+                  {log.created_at ? new Date(log.created_at).toLocaleString() : ""}
+                </span>
+                <span className="admin-log-preview">{log.input_preview || "—"}</span>
+              </button>
+            </li>
+          ))}
+          {logs.length === 0 && <li className="meta">No logs yet for this filter.</li>}
+        </ul>
+      </AdminPanel>
+
+      {logDetail && (
+        <>
+          <div className="email-backdrop" onClick={() => setLogDetail(null)} />
+          <div className="comment-modal admin-log-modal">
+            <h2>LLM call #{logDetail.id}</h2>
+            <p className="meta">
+              {logDetail.kind}
+              {logDetail.email_id ? ` · email ${logDetail.email_id}` : ""}
+              {logDetail.model ? ` · ${logDetail.model}` : ""}
+              {logDetail.created_at
+                ? ` · ${new Date(logDetail.created_at).toLocaleString()}`
+                : ""}
+            </p>
+            <div className="admin-log-section">
+              <h3>Instructions</h3>
+              <pre className="admin-pre">{logDetail.instructions_text}</pre>
+            </div>
+            <div className="admin-log-section">
+              <h3>Input (newsletter or source)</h3>
+              <pre className="admin-pre">{logDetail.input_text}</pre>
+            </div>
+            <div className="admin-log-section">
+              <h3>Model output</h3>
+              <pre className="admin-pre">{formatJsonish(logDetail.output_text)}</pre>
+            </div>
+            <button type="button" className="btn-primary" onClick={() => setLogDetail(null)}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

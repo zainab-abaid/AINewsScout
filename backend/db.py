@@ -115,3 +115,68 @@ class AppSetting(SQLModel, table=True):
 
     key: str = Field(primary_key=True)
     value: str = ""
+
+
+class ResearchProbe(SQLModel, table=True):
+    """Past Genie probes / hands-on investigations (admin-editable)."""
+
+    __tablename__ = "research_probes"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    description: str = ""
+    source_url: Optional[str] = None
+    source_kind: str = "manual"  # manual | pdf | url
+    sort_order: int = 0
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ResearchArtifact(SQLModel, table=True):
+    """Related Genie artifacts the scout should know about."""
+
+    __tablename__ = "research_artifacts"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    description: str = ""
+    source_url: Optional[str] = None
+    source_kind: str = "manual"  # manual | url
+    sort_order: int = 0
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ResearchPriority(SQLModel, table=True):
+    """Current higher-priority research areas."""
+
+    __tablename__ = "research_priorities"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    description: str = ""
+    sort_order: int = 0
+
+
+class ResearchNotUseful(SQLModel, table=True):
+    """Topics that are generally not useful for probe scouting."""
+
+    __tablename__ = "research_not_useful"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    text: str
+    sort_order: int = 0
+
+
+class LlmCallLog(SQLModel, table=True):
+    """What was sent to / received from the LLM (admin-readable)."""
+
+    __tablename__ = "llm_call_logs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    kind: str = Field(index=True)  # extract | probe_ingest | artifact_ingest
+    email_id: Optional[int] = Field(default=None, foreign_key="emails.id", index=True)
+    model: str = ""
+    instructions_text: str = ""
+    input_text: str = ""
+    output_text: str = ""
+    meta_json: str = "{}"
+    created_at: datetime = Field(default_factory=utcnow)

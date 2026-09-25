@@ -262,7 +262,11 @@ def extract_email_ids(
             )
         try:
             result = extract_candidates(
-                subject, date_raw, body, categories=category_names_display
+                subject,
+                date_raw,
+                body,
+                categories=category_names_display,
+                email_id=eid,
             )
             ideas_this_email: Optional[int] = None
             with session_scope() as session:
