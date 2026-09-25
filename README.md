@@ -26,7 +26,7 @@ Past probes, related artifacts, higher-priority research areas, and the not-usef
 | --- | --- | --- |
 | Locked | none / wrong token | No content — access gate only |
 | Viewer | `VIEWER_TOKEN` | Browse candidates, marked items, and semantic search |
-| Analyst | `ANALYST_TOKEN` | Mark / comment / categorise (existing categories), sync, extract, publish, keep search hits |
+| Analyst | `ANALYST_TOKEN` | Mark / comment / categorise (existing categories), sync, extract, keep search hits |
 | Admin | `ADMIN_TOKEN` | Everything analyst can, plus Admin tab (research context + add/deprecate categories) |
 
 When `VIEWER_TOKEN` is set, the UI stays locked until a valid token is entered. Analyst/admin tokens also unlock the app. Use **Switch role** in the header to change. For local-only convenience you may leave `VIEWER_TOKEN` empty (open viewer); set it before hosting.

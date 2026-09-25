@@ -9,7 +9,6 @@ import {
   type IdeaSearch,
   type IdeaSearchDetail,
   type Job,
-  type PublishStatus,
   type LlmLogDetail,
   type LlmLogSummary,
   type ResearchContext,
@@ -503,11 +502,6 @@ export default function App() {
   const [emailExcerpt, setEmailExcerpt] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const [publishStatus, setPublishStatus] = useState<PublishStatus>({
-    status: "idle",
-    url: "",
-    error: "",
-  });
   const lastProgressLoad = useRef("");
 
   const load = useCallback(async () => {
@@ -673,27 +667,6 @@ export default function App() {
     return () => clearInterval(t);
   }, [jobBusy, job?.id, load]);
 
-  // Poll publish status while a publish is running.
-  useEffect(() => {
-    if (publishStatus.status !== "running") return;
-    const t = setInterval(() => {
-      api
-        .publishStatus()
-        .then(setPublishStatus)
-        .catch(() => undefined);
-    }, 2000);
-    return () => clearInterval(t);
-  }, [publishStatus.status]);
-
-  async function startPublish() {
-    try {
-      const s = await api.publish();
-      setPublishStatus(s);
-    } catch (e) {
-      setPublishStatus({ status: "error", url: "", error: (e as Error).message });
-    }
-  }
-
   /** Returns false if the change did not stick, so callers do not act on it. */
   async function patch(id: number, body: Record<string, unknown>): Promise<boolean> {
     try {
@@ -811,7 +784,6 @@ export default function App() {
               onSignIn={() => setSignInOpen(true)}
               onSignOut={handleSignOut}
             />
-            {canEdit && <PublishControl status={publishStatus} onPublish={startPublish} />}
             <InboxStatus settings={settings} />
           </div>
         </header>
@@ -2465,7 +2437,7 @@ function SignInForm({
         {mode === "admin"
           ? "Admin can edit research priorities, past probes, and categories. Changes apply to new newsletters only."
           : mode === "analyst"
-            ? "Analyst can mark items, sync the inbox, extract, and publish."
+            ? "Analyst can mark items, sync the inbox, and extract."
             : "Viewer can browse candidates and run semantic search, but cannot edit."}
       </p>
       {authMeta && mode === "viewer" && !authMeta.viewer_token_set && (
@@ -3206,37 +3178,6 @@ function AdminView({
             </button>
           </div>
         </>
-      )}
-    </div>
-  );
-}
-
-function PublishControl({
-  status,
-  onPublish,
-}: {
-  status: PublishStatus;
-  onPublish: () => void;
-}) {
-  const busy = status.status === "running";
-  return (
-    <div className="publish-control">
-      <button
-        type="button"
-        className="publish-btn"
-        disabled={busy}
-        onClick={onPublish}
-        title={status.error || undefined}
-      >
-        {busy ? "Publishing…" : "Publish snapshot"}
-      </button>
-      {status.status === "done" && status.url && (
-        <a className="publish-link" href={status.url} target="_blank" rel="noreferrer">
-          View public page
-        </a>
-      )}
-      {status.status === "error" && (
-        <span className="publish-err" title={status.error}>Publish failed</span>
       )}
     </div>
   );

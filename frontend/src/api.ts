@@ -58,12 +58,6 @@ export type LlmLogDetail = LlmLogSummary & {
   meta: Record<string, unknown>;
 };
 
-export type PublishStatus = {
-  status: "idle" | "running" | "done" | "error";
-  url: string;
-  error: string;
-};
-
 export type Candidate = {
   id: number;
   email_id: number;
@@ -408,8 +402,6 @@ export const api = {
     ),
   deleteSearch: (id: number) =>
     http<{ ok: boolean }>(`/api/searches/${id}`, { method: "DELETE" }),
-  publishStatus: () => http<PublishStatus>("/api/publish"),
-  publish: () => http<PublishStatus>("/api/publish", { method: "POST" }),
   activeJob: async () => {
     const res = await fetch("/api/jobs/active", {
       headers: { "Content-Type": "application/json", ...authHeaders() },

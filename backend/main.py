@@ -12,7 +12,6 @@ from backend.database import init_db
 from backend.routers.admin import router as admin_router
 from backend.routers.core import router as core_router
 from backend.routers.ops import router as ops_router
-from backend.routers.publish import router as publish_router
 from backend.routers.search import router as search_router
 from backend.services.imap_scheduler import start_imap_daily_sync
 from backend.services.jobs import resume_orphaned_jobs
@@ -36,7 +35,6 @@ app.add_middleware(
 )
 app.include_router(core_router, prefix="/api")
 app.include_router(ops_router, prefix="/api")
-app.include_router(publish_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
