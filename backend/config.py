@@ -8,9 +8,12 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env", override=True)
 
-DATA_DIR = ROOT / "data"
+# Local default: <repo>/data. On Railway mount a volume at /app/data and set DATA_DIR=/app/data.
+_data_env = os.getenv("DATA_DIR", "").strip()
+DATA_DIR = Path(_data_env) if _data_env else (ROOT / "data")
 DB_PATH = DATA_DIR / "probe_scout.sqlite"
 SKILLS_DIR = ROOT / "skills"
+FRONTEND_DIST = ROOT / "frontend" / "dist"
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4").strip() or "gpt-5.4"
@@ -49,11 +52,24 @@ IMAP_SYNC_ENABLED = os.getenv("IMAP_SYNC_ENABLED", "1").strip().lower() not in {
 # Local hour (0-23) when the daily IMAP pull runs while the API is up.
 IMAP_SYNC_HOUR = max(0, min(23, int(os.getenv("IMAP_SYNC_HOUR", "6") or "6")))
 
-API_HOST = "127.0.0.1"
+API_HOST = os.getenv("API_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1").strip() or "127.0.0.1"
 API_PORT = int(os.getenv("PORT", "8000"))
 
+# Comma-separated browser origins allowed to call the API (local Vite defaults).
+# When the UI is served from the same FastAPI process, same-origin needs no CORS.
+CORS_ORIGINS = [
+    part.strip()
+    for part in os.getenv(
+        "CORS_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",")
+    if part.strip()
+]
+
 # Access tokens for hosted / shared use. Empty = that role cannot unlock.
-# Viewer needs no token. Admin token also grants analyst powers.
+# If VIEWER_TOKEN is set, the app stays locked until a valid token is provided.
+# If VIEWER_TOKEN is empty (local convenience), reads are open as viewer.
+VIEWER_TOKEN = os.getenv("VIEWER_TOKEN", "").strip()
 ANALYST_TOKEN = os.getenv("ANALYST_TOKEN", "").strip()
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 

@@ -44,6 +44,7 @@ def auth_status(x_access_token: str | None = Header(default=None, alias="X-Acces
     cfg = tokens_configured()
     return AuthStatusOut(
         role=role_from_token(x_access_token),
+        viewer_token_set=cfg["viewer_token_set"],
         analyst_token_set=cfg["analyst_token_set"],
         admin_token_set=cfg["admin_token_set"],
     )
@@ -55,6 +56,7 @@ def auth_unlock(body: AuthUnlockIn):
     cfg = tokens_configured()
     return AuthStatusOut(
         role=role,
+        viewer_token_set=cfg["viewer_token_set"],
         analyst_token_set=cfg["analyst_token_set"],
         admin_token_set=cfg["admin_token_set"],
     )

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
-  getStoredToken,
   setStoredToken,
   type AuthStatus,
   type Candidate,
@@ -484,7 +483,7 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [view, setView] = useState<TabId>("review");
-  const [role, setRole] = useState<Role>("viewer");
+  const [role, setRole] = useState<Role>("locked");
   const [authMeta, setAuthMeta] = useState<AuthStatus | null>(null);
   const [signInOpen, setSignInOpen] = useState(false);
   const [unprocessedOnly, setUnprocessedOnly] = useState(true);
@@ -512,6 +511,16 @@ export default function App() {
   const lastProgressLoad = useRef("");
 
   const load = useCallback(async () => {
+    const auth = await api.authStatus();
+    setAuthMeta(auth);
+    setRole(auth.role);
+    if (auth.role === "locked") {
+      setStats(null);
+      setCategories([]);
+      setCandidates([]);
+      setSettings(null);
+      return;
+    }
     const [s, cats, cands] = await Promise.all([
       api.stats(),
       api.categories(),
@@ -526,13 +535,6 @@ export default function App() {
       setError((e as Error).message);
     }
     try {
-      const auth = await api.authStatus();
-      setAuthMeta(auth);
-      setRole(auth.role);
-    } catch {
-      /* ignore */
-    }
-    try {
       const active = await api.activeJob();
       if (active && (active.status === "queued" || active.status === "running")) {
         setJob((prev) => prev ?? active);
@@ -543,19 +545,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Restore session token role on first paint.
-    if (!getStoredToken()) return;
     api
       .authStatus()
       .then((auth) => {
         setAuthMeta(auth);
         setRole(auth.role);
+        if (auth.role === "locked") setSignInOpen(true);
       })
       .catch(() => undefined);
   }, []);
 
   const canEdit = role === "analyst" || role === "admin";
   const canAdmin = role === "admin";
+  const isLocked = role === "locked";
 
   async function handleUnlock(token: string) {
     const auth = await api.unlock(token);
@@ -564,12 +566,18 @@ export default function App() {
     setRole(auth.role);
     setSignInOpen(false);
     setError("");
+    await load();
   }
 
   function handleSignOut() {
     setStoredToken("");
-    setRole("viewer");
+    setRole("locked");
+    setStats(null);
+    setCategories([]);
+    setCandidates([]);
+    setSettings(null);
     if (view === "admin") setView("review");
+    setSignInOpen(true);
     api
       .authStatus()
       .then((auth) => {
@@ -773,12 +781,28 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {isLocked ? (
+        <div className="locked-gate">
+          <h1>AI News Newsletter Explorer</h1>
+          <p>
+            This app is private. Paste a viewer, analyst, or admin token to continue.
+          </p>
+          {error && <p className="err">{error}</p>}
+          <SignInForm
+            authMeta={authMeta}
+            requireAccess
+            onUnlock={handleUnlock}
+            onCancel={undefined}
+          />
+        </div>
+      ) : (
+        <>
       <div className="app-chrome">
         <header className="app-header">
           <div>
             <h1>AI News Newsletter Explorer</h1>
             {role === "viewer" && (
-              <p className="viewer-hint">Viewing only — sign in to mark items or sync.</p>
+              <p className="viewer-hint">Viewing only — sign in as analyst/admin to mark items or sync.</p>
             )}
           </div>
           <div className="header-right">
@@ -1190,6 +1214,8 @@ export default function App() {
         </>
       )}
       </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2353,14 +2379,23 @@ function AuthChip({
 }) {
   if (role === "viewer") {
     return (
-      <button type="button" className="auth-chip" onClick={onSignIn}>
-        Sign in
-      </button>
+      <div className="auth-chip signed-in">
+        <span className="auth-role">Viewer</span>
+        <button type="button" className="linkish" onClick={onSignIn}>
+          Switch role
+        </button>
+        <button type="button" className="linkish" onClick={onSignOut}>
+          Sign out
+        </button>
+      </div>
     );
   }
   return (
     <div className="auth-chip signed-in">
       <span className="auth-role">{role === "admin" ? "Admin" : "Analyst"}</span>
+      <button type="button" className="linkish" onClick={onSignIn}>
+        Switch role
+      </button>
       <button type="button" className="linkish" onClick={onSignOut}>
         Sign out
       </button>
@@ -2368,19 +2403,23 @@ function AuthChip({
   );
 }
 
-function SignInModal({
+function SignInForm({
   authMeta,
   onUnlock,
-  onClose,
+  onCancel,
+  requireAccess = false,
 }: {
   authMeta: AuthStatus | null;
   onUnlock: (token: string) => Promise<void>;
-  onClose: () => void;
+  onCancel?: () => void;
+  requireAccess?: boolean;
 }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
-  const [mode, setMode] = useState<"analyst" | "admin">("analyst");
+  const [mode, setMode] = useState<"viewer" | "analyst" | "admin">(
+    requireAccess ? "viewer" : "analyst",
+  );
 
   async function submit() {
     if (!token.trim() || busy) return;
@@ -2396,72 +2435,97 @@ function SignInModal({
   }
 
   return (
+    <div className={requireAccess ? "sign-in-form" : "comment-modal sign-in-modal sign-in-form"}>
+      {!requireAccess && <h2>Switch role</h2>}
+      <p className="meta">
+        Paste a token from <code>.env</code>
+        {requireAccess
+          ? ". Viewer can browse; analyst can mark and sync; admin can edit research context."
+          : " to change role."}
+      </p>
+      <div className="segmented sign-in-modes">
+        {(
+          [
+            ["viewer", "Viewer"],
+            ["analyst", "Analyst"],
+            ["admin", "Admin"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={mode === id ? "on" : ""}
+            onClick={() => setMode(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="sign-in-hint">
+        {mode === "admin"
+          ? "Admin can edit research priorities, past probes, and categories. Changes apply to new newsletters only."
+          : mode === "analyst"
+            ? "Analyst can mark items, sync the inbox, extract, and publish."
+            : "Viewer can browse candidates and run semantic search, but cannot edit."}
+      </p>
+      {authMeta && mode === "viewer" && !authMeta.viewer_token_set && (
+        <p className="err">VIEWER_TOKEN is not set in .env yet.</p>
+      )}
+      {authMeta && mode === "analyst" && !authMeta.analyst_token_set && (
+        <p className="err">ANALYST_TOKEN is not set in .env yet.</p>
+      )}
+      {authMeta && mode === "admin" && !authMeta.admin_token_set && (
+        <p className="err">ADMIN_TOKEN is not set in .env yet.</p>
+      )}
+      <label className="sign-in-label">
+        {mode === "admin" ? "Admin token" : mode === "analyst" ? "Analyst token" : "Viewer token"}
+        <input
+          type="password"
+          autoFocus
+          value={token}
+          placeholder="Paste token"
+          aria-label="Access token"
+          disabled={busy}
+          onChange={(e) => setToken(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+            if (e.key === "Escape" && onCancel) onCancel();
+          }}
+        />
+      </label>
+      {localError && <p className="err">{localError}</p>}
+      <div className="comment-form-actions">
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={busy || !token.trim()}
+          onClick={submit}
+        >
+          {busy ? "Checking…" : "Unlock"}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn-quiet" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SignInModal({
+  authMeta,
+  onUnlock,
+  onClose,
+}: {
+  authMeta: AuthStatus | null;
+  onUnlock: (token: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  return (
     <>
       <div className="email-backdrop" onClick={onClose} />
-      <div className="comment-modal sign-in-modal">
-        <h2>Sign in</h2>
-        <p className="meta">
-          The app opens as a viewer. Paste an analyst or admin token from{" "}
-          <code>.env</code> to unlock edits.
-        </p>
-        <div className="segmented sign-in-modes">
-          <button
-            type="button"
-            className={mode === "analyst" ? "on" : ""}
-            onClick={() => setMode("analyst")}
-          >
-            Analyst
-          </button>
-          <button
-            type="button"
-            className={mode === "admin" ? "on" : ""}
-            onClick={() => setMode("admin")}
-          >
-            Admin
-          </button>
-        </div>
-        <p className="sign-in-hint">
-          {mode === "admin"
-            ? "Admin can edit research priorities, past probes, and categories. Changes apply to new newsletters only — existing marks and comments are never wiped."
-            : "Analyst can mark items, sync the inbox, extract, and publish. Viewers can still browse and run semantic search."}
-        </p>
-        {authMeta && mode === "analyst" && !authMeta.analyst_token_set && (
-          <p className="err">ANALYST_TOKEN is not set in .env yet.</p>
-        )}
-        {authMeta && mode === "admin" && !authMeta.admin_token_set && (
-          <p className="err">ADMIN_TOKEN is not set in .env yet.</p>
-        )}
-        <label className="sign-in-label">
-          {mode === "admin" ? "Admin token" : "Analyst token"}
-          <input
-            type="password"
-            autoFocus
-            value={token}
-            placeholder="Paste token"
-            aria-label={mode === "admin" ? "Admin token" : "Analyst token"}
-            disabled={busy}
-            onChange={(e) => setToken(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-              if (e.key === "Escape") onClose();
-            }}
-          />
-        </label>
-        {localError && <p className="err">{localError}</p>}
-        <div className="comment-form-actions">
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={busy || !token.trim()}
-            onClick={submit}
-          >
-            {busy ? "Checking…" : "Unlock"}
-          </button>
-          <button type="button" className="btn-quiet" onClick={onClose} disabled={busy}>
-            Stay as viewer
-          </button>
-        </div>
-      </div>
+      <SignInForm authMeta={authMeta} onUnlock={onUnlock} onCancel={onClose} />
     </>
   );
 }

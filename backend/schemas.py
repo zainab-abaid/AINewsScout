@@ -238,6 +238,7 @@ class AuthUnlockIn(BaseModel):
 
 class AuthStatusOut(BaseModel):
     role: str
+    viewer_token_set: bool = False
     analyst_token_set: bool
     admin_token_set: bool
 

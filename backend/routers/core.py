@@ -75,6 +75,7 @@ def list_candidates(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
 ):
     stmt = (
         select(Candidate, Email, Category)
@@ -163,7 +164,11 @@ def patch_candidate(
 
 
 @router.get("/emails/{email_id}", response_model=EmailOut)
-def get_email(email_id: int, session: Session = Depends(get_session)):
+def get_email(
+    email_id: int,
+    session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
+):
     email = session.get(Email, email_id)
     if not email:
         raise HTTPException(404, "Email not found")
@@ -191,7 +196,10 @@ def _category_out(r: Category) -> CategoryOut:
 
 
 @router.get("/categories", response_model=list[CategoryOut])
-def list_categories(session: Session = Depends(get_session)):
+def list_categories(
+    session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
+):
     rows = session.exec(select(Category).order_by(Category.sort_order, Category.name)).all()
     return [_category_out(r) for r in rows]
 
@@ -246,7 +254,10 @@ def patch_category(
 
 
 @router.get("/stats", response_model=StatsOut)
-def stats(session: Session = Depends(get_session)):
+def stats(
+    session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
+):
     emails = session.exec(select(func.count(Email.id))).one()
     pending = session.exec(
         select(func.count(Email.id)).where(

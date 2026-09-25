@@ -1,0 +1,16 @@
+# Railway config-as-code. Dockerfile builder is used automatically when
+# Dockerfile is present; settings below tune deploy for SQLite.
+# https://docs.railway.com/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+# Critical for SQLite: do not run old + new containers against one DB file.
+overlapSeconds = 0
+drainingSeconds = 10

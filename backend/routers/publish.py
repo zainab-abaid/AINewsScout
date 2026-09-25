@@ -21,7 +21,7 @@ class PublishStatus(BaseModel):
 
 
 @router.get("/publish", response_model=PublishStatus)
-def get_publish_status():
+def get_publish_status(_role: str = require_role("viewer")):
     return PublishStatus(**_state)
 
 

@@ -1,8 +1,9 @@
 export type TagSlug = "high-priority" | "strong" | "possible";
-export type Role = "viewer" | "analyst" | "admin";
+export type Role = "locked" | "viewer" | "analyst" | "admin";
 
 export type AuthStatus = {
   role: Role;
+  viewer_token_set: boolean;
   analyst_token_set: boolean;
   admin_token_set: boolean;
 };

@@ -21,6 +21,7 @@ from backend.routers.admin import router as admin_router
 from backend.routers.core import router as core_router
 from backend.routers.search import router as search_router
 
+TEST_VIEWER_TOKEN = "test-viewer-token"
 TEST_ANALYST_TOKEN = "test-analyst-token"
 TEST_ADMIN_TOKEN = "test-admin-token"
 
@@ -44,6 +45,7 @@ def engine(db_path: Path):
 
 @pytest.fixture()
 def client(engine, monkeypatch) -> TestClient:
+    monkeypatch.setattr(auth, "VIEWER_TOKEN", TEST_VIEWER_TOKEN)
     monkeypatch.setattr(auth, "ANALYST_TOKEN", TEST_ANALYST_TOKEN)
     monkeypatch.setattr(auth, "ADMIN_TOKEN", TEST_ADMIN_TOKEN)
     database.init_db()

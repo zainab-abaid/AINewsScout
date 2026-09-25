@@ -24,11 +24,12 @@ Past probes, related artifacts, higher-priority research areas, and the not-usef
 
 | Role | Token | Can do |
 | --- | --- | --- |
-| Viewer (default) | none | Browse candidates, marked items, and semantic search |
+| Locked | none / wrong token | No content — access gate only |
+| Viewer | `VIEWER_TOKEN` | Browse candidates, marked items, and semantic search |
 | Analyst | `ANALYST_TOKEN` | Mark / comment / categorise (existing categories), sync, extract, publish, keep search hits |
 | Admin | `ADMIN_TOKEN` | Everything analyst can, plus Admin tab (research context + add/deprecate categories) |
 
-The UI loads as **viewer**. Use **Sign in** in the header and paste the matching token from `.env`.
+When `VIEWER_TOKEN` is set, the UI stays locked until a valid token is entered. Analyst/admin tokens also unlock the app. Use **Switch role** in the header to change. For local-only convenience you may leave `VIEWER_TOKEN` empty (open viewer); set it before hosting.
 
 ### Env vs config, and hosting
 
@@ -47,7 +48,7 @@ Generate tokens with:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Put them in `.env` as `ANALYST_TOKEN` and `ADMIN_TOKEN` (see `.env.example`).
+Put them in `.env` as `VIEWER_TOKEN`, `ANALYST_TOKEN`, and `ADMIN_TOKEN` (see `.env.example`).
 
 ## Prerequisites
 
@@ -103,6 +104,7 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on `127.0.0
 | `IMAP_ALLOWED_FROM` | Comma-separated From filters (only these messages are ingested) |
 | `IMAP_SYNC_ENABLED` | `1` to enable auto pull (default) |
 | `IMAP_SYNC_HOUR` | Local hour `0–23` for the daily pull while the API is running (default `6`) |
+| `VIEWER_TOKEN` | Shared secret required to open the app (browse only) |
 | `ANALYST_TOKEN` | Shared secret for analyst sign-in (marks, sync, extract) |
 | `ADMIN_TOKEN` | Shared secret for admin sign-in (research context + taxonomy) |
 
@@ -161,3 +163,7 @@ skills/          prompts
 tests/           backend tests
 data/            local DB, created at runtime (gitignored)
 ```
+
+## Hosting on Railway
+
+See [docs/RAILWAY.md](docs/RAILWAY.md) for Dockerfile-based deploy, volume setup, env vars, and uploading your local SQLite database.

@@ -105,12 +105,16 @@ def _hit_out(hit: IdeaSearchHit, email: Optional[Email]) -> SearchHitOut:
 
 
 @router.post("/searches/preview", response_model=SearchPreviewOut)
-def searches_preview(body: IdeaSearchCreate):
+def searches_preview(body: IdeaSearchCreate, _role: str = require_role("viewer")):
     return preview_search(parse_iso_date(body.date_from), parse_iso_date(body.date_to))
 
 
 @router.post("/searches", response_model=IdeaSearchOut)
-def create_search(body: IdeaSearchCreate, session: Session = Depends(get_session)):
+def create_search(
+    body: IdeaSearchCreate,
+    session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
+):
     question = (body.question or "").strip()
     if not question:
         raise HTTPException(400, "Enter a question to search for")
@@ -147,7 +151,10 @@ def create_search(body: IdeaSearchCreate, session: Session = Depends(get_session
 
 
 @router.get("/searches", response_model=list[IdeaSearchOut])
-def list_searches(session: Session = Depends(get_session)):
+def list_searches(
+    session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
+):
     searches = session.exec(select(IdeaSearch).order_by(IdeaSearch.id.desc())).all()
     counts: dict[int, int] = {}
     for hit in session.exec(select(IdeaSearchHit)).all():
@@ -156,7 +163,11 @@ def list_searches(session: Session = Depends(get_session)):
 
 
 @router.get("/searches/{search_id}", response_model=IdeaSearchDetailOut)
-def get_search(search_id: int, session: Session = Depends(get_session)):
+def get_search(
+    search_id: int,
+    session: Session = Depends(get_session),
+    _role: str = require_role("viewer"),
+):
     search = session.get(IdeaSearch, search_id)
     if not search:
         raise HTTPException(404, "Search not found")

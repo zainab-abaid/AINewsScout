@@ -4,7 +4,32 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import TEST_ADMIN_TOKEN, TEST_ANALYST_TOKEN
+from tests.conftest import TEST_ADMIN_TOKEN, TEST_ANALYST_TOKEN, TEST_VIEWER_TOKEN
+
+
+def test_locked_without_token(client: TestClient):
+    bare = TestClient(client.app)
+    status = bare.get("/api/auth/status").json()
+    assert status["role"] == "locked"
+    assert status["viewer_token_set"] is True
+    assert bare.get("/api/candidates?status=all").status_code == 403
+    assert bare.get("/api/stats").status_code == 403
+
+
+def test_viewer_token_can_read_but_not_write(client: TestClient):
+    bare = TestClient(client.app)
+    headers = {"X-Access-Token": TEST_VIEWER_TOKEN}
+    assert bare.get("/api/auth/status", headers=headers).json()["role"] == "viewer"
+    assert bare.get("/api/candidates?status=all", headers=headers).status_code == 200
+    c = bare.get("/api/candidates?status=all", headers=headers).json()[0]
+    assert (
+        bare.patch(
+            f"/api/candidates/{c['id']}",
+            headers=headers,
+            json={"important": True},
+        ).status_code
+        == 403
+    )
 
 
 def test_viewer_cannot_patch_candidates(client: TestClient):
@@ -17,7 +42,7 @@ def test_viewer_cannot_patch_candidates(client: TestClient):
 def test_unlock_and_admin_research_context(client: TestClient):
     bare = TestClient(client.app)
     status = bare.get("/api/auth/status").json()
-    assert status["role"] == "viewer"
+    assert status["role"] == "locked"
     assert status["analyst_token_set"] is True
     assert status["admin_token_set"] is True
 
@@ -61,7 +86,7 @@ def test_category_deprecate_keeps_assignment(client: TestClient):
     analyst = {"X-Access-Token": TEST_ANALYST_TOKEN}
 
     cat = bare.post("/api/categories", headers=admin, json={"name": "Legacy topic"}).json()
-    candidate = bare.get("/api/candidates?status=all").json()[0]
+    candidate = bare.get("/api/candidates?status=all", headers=analyst).json()[0]
     patched = bare.patch(
         f"/api/candidates/{candidate['id']}",
         headers=analyst,
@@ -77,7 +102,7 @@ def test_category_deprecate_keeps_assignment(client: TestClient):
     assert dep.status_code == 200
     assert dep.json()["deprecated"] is True
 
-    still = bare.get("/api/candidates?status=all").json()[0]
+    still = bare.get("/api/candidates?status=all", headers=analyst).json()[0]
     assert still["category_id"] == cat["id"]
     assert still["category_name"] == "Legacy topic"
 

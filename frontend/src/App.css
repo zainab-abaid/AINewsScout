@@ -652,11 +652,18 @@ button.linkish {
 .ol-setup { color: var(--muted); padding-left: 1.2rem; }
 .ol-setup li { margin: .35rem 0; }
 
-.viewer-hint {
-  margin: .25rem 0 0;
-  font-size: .82rem;
-  color: var(--muted);
+.locked-gate {
+  max-width: 28rem;
+  margin: 4rem auto;
+  padding: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
+.locked-gate h1 { margin: 0 0 .75rem; font-size: 1.25rem; }
+.locked-gate > p { color: var(--muted); font-size: .92rem; margin: 0 0 1rem; }
+.sign-in-form .segmented { margin-bottom: .5rem; }
+
 .auth-chip {
   font: inherit;
   font-size: .82rem;

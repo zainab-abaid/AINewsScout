@@ -52,7 +52,7 @@ def job_out(job: Job) -> JobOut:
 
 
 @router.get("/jobs/active", response_model=JobOut | None)
-def active_job():
+def active_job(_role: str = require_role("viewer")):
     job = get_active_job()
     if not job:
         return None
@@ -60,7 +60,7 @@ def active_job():
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)
-def get_job(job_id: int):
+def get_job(job_id: int, _role: str = require_role("viewer")):
     with session_scope() as session:
         job = session.get(Job, job_id)
         if not job:
@@ -101,7 +101,7 @@ def start_extract(body: ExtractRequest, _role: str = require_role("analyst")):
 
 
 @router.get("/settings/status")
-def settings_status():
+def settings_status(_role: str = require_role("viewer")):
     inbox = imap_status()
     key = openai_api_key()
     return {
