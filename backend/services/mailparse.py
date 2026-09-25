@@ -124,7 +124,7 @@ def _collect_payload(payload: dict[str, Any]) -> tuple[str, str]:
     return plain, html
 
 
-def gmail_payload_text(payload: dict[str, Any]) -> str:
+def mime_payload_text(payload: dict[str, Any]) -> str:
     plain, html = _collect_payload(payload)
     if html:
         md = html_to_markdown(html)
@@ -168,16 +168,71 @@ def format_email_markdown(
     return "\n".join(lines)
 
 
-def gmail_message_markdown(payload: dict[str, Any], source: str) -> str:
-    """The stored form of a Gmail message. Sync and re-import share this, so a
-    re-imported body is identical to a freshly fetched one."""
-    headers = headers_map(payload)
+def _decode_header_value(raw: Optional[str]) -> str:
+    if not raw:
+        return ""
+    from email.header import decode_header, make_header
+
+    try:
+        return str(make_header(decode_header(raw)))
+    except Exception:
+        return raw
+
+
+def rfc822_part_text(msg: Any) -> str:
+    """Best-effort plain/HTML body from an `email.message.Message`."""
+    plain = ""
+    html = ""
+
+    def consider(part: Any) -> None:
+        nonlocal plain, html
+        if part.get_content_maintype() == "multipart":
+            return
+        disposition = (part.get_content_disposition() or "").lower()
+        if disposition == "attachment":
+            return
+        ctype = (part.get_content_type() or "").lower()
+        try:
+            payload = part.get_payload(decode=True) or b""
+        except Exception:
+            payload = b""
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            text = payload.decode(charset, errors="replace")
+        except LookupError:
+            text = payload.decode("utf-8", errors="replace")
+        if ctype == "text/html" and text and not html:
+            html = text
+        elif ctype == "text/plain" and text and not plain:
+            plain = text
+
+    if msg.is_multipart():
+        for part in msg.walk():
+            consider(part)
+    else:
+        consider(msg)
+
+    if html:
+        md = html_to_markdown(html)
+        if md:
+            return md
+    if plain:
+        return normalize_inline_links(plain.strip())
+    return ""
+
+
+def rfc822_message_markdown(msg: Any, source: str) -> str:
+    subject = _decode_header_value(msg.get("Subject"))
+    from_addr = _decode_header_value(msg.get("From"))
+    to_addr = _decode_header_value(msg.get("To"))
+    date_raw = msg.get("Date") or ""
+    message_id = (msg.get("Message-ID") or msg.get("Message-Id") or "").strip()
     return format_email_markdown(
-        headers.get("subject") or "(no subject)",
-        headers.get("from") or "",
-        headers.get("date") or "",
-        gmail_payload_text(payload),
+        subject or "(no subject)",
+        from_addr,
+        date_raw,
+        rfc822_part_text(msg),
         source,
-        (headers.get("message-id") or "").strip(),
-        headers.get("to") or "",
+        message_id,
+        to_addr,
     )

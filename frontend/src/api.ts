@@ -62,25 +62,17 @@ export type Job = {
   finished_at: string | null;
 };
 
-export type SyncPreview = {
-  date_from: string | null;
-  date_to: string | null;
-  stored: number;
-  extracted: number;
-  pending: number;
-  failed: number;
-  candidates: number;
-  marked: number;
-  needs_confirm: boolean;
-};
-
 export type SettingsStatus = {
-  connected: boolean;
-  email: string | null;
-  has_client: boolean;
-  redirect_uri: string;
-  label: string;
+  inbox_configured: boolean;
+  inbox_enabled: boolean;
+  inbox_email: string | null;
+  inbox_host: string;
+  inbox_folder: string;
+  allowed_from: string[];
+  sync_hour: number;
   openai_configured: boolean;
+  openai_model: string;
+  openai_reasoning_effort: string;
 };
 
 export type EmailDetail = {
@@ -136,8 +128,7 @@ export type SearchPreview = {
   emails: number;
   stored: number;
   will_fetch: number;
-  gmail_connected: boolean;
-  gmail_checked: boolean;
+  inbox_configured: boolean;
   chunks: number;
 };
 
@@ -181,17 +172,8 @@ export const api = {
     }),
   email: (id: number) => http<EmailDetail>(`/api/emails/${id}`),
   settings: () => http<SettingsStatus>("/api/settings/status"),
-  connectUrl: () => http<{ auth_url: string }>("/api/gmail/connect"),
-  disconnect: () => http<SettingsStatus>("/api/gmail/disconnect", { method: "POST" }),
-  sync: (body: {
-    date_from?: string;
-    date_to?: string;
-    label?: string;
-    extract?: boolean;
-    overwrite_extracted?: boolean;
-  }) => http<Job>("/api/sync", { method: "POST", body: JSON.stringify(body) }),
-  syncPreview: (body: { date_from?: string; date_to?: string }) =>
-    http<SyncPreview>("/api/sync/preview", { method: "POST", body: JSON.stringify(body) }),
+  sync: (body: { extract?: boolean } = {}) =>
+    http<Job>("/api/sync", { method: "POST", body: JSON.stringify(body) }),
   extract: () => http<Job>("/api/extract", { method: "POST", body: JSON.stringify({ pending_only: true }) }),
   job: (id: number) => http<Job>(`/api/jobs/${id}`),
   searchPreview: (body: { question?: string; date_from?: string; date_to?: string }) =>

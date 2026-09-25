@@ -123,33 +123,14 @@ class JobOut(BaseModel):
 
 
 class SyncRequest(BaseModel):
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    label: Optional[str] = None
+    """Pull matching messages from the dedicated IMAP inbox, then extract."""
+
     extract: bool = True
-    overwrite_extracted: bool = False
-
-
-class SyncPreviewOut(BaseModel):
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    stored: int = 0
-    extracted: int = 0
-    pending: int = 0
-    failed: int = 0
-    candidates: int = 0
-    marked: int = 0
-    needs_confirm: bool = False
 
 
 class ExtractRequest(BaseModel):
     email_ids: Optional[list[int]] = None
     pending_only: bool = True
-
-
-class GmailClientIn(BaseModel):
-    client_id: str
-    client_secret: str
 
 
 class CategoryCreate(BaseModel):
@@ -238,8 +219,7 @@ class SearchPreviewOut(BaseModel):
     emails: int = 0
     stored: int = 0
     will_fetch: int = 0
-    gmail_connected: bool = False
-    gmail_checked: bool = False
+    inbox_configured: bool = False
     chunks: int = 0
 
 

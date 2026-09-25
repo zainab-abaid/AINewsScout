@@ -119,16 +119,12 @@ def create_search(body: IdeaSearchCreate, session: Session = Depends(get_session
         parse_iso_date(body.date_from), parse_iso_date(body.date_to)
     )
     stored = int(preview.get("stored") or 0)
-    will_fetch = int(preview.get("will_fetch") or 0)
-    connected = bool(preview.get("gmail_connected"))
-    checked = bool(preview.get("gmail_checked"))
-    if stored == 0 and not connected:
+    if stored == 0:
         raise HTTPException(
             400,
-            "No stored emails in that date range. Connect Gmail to pull the missing ones.",
+            "No stored emails in that date range. Forward newsletters to the "
+            "dedicated inbox (or click Sync inbox) so they are pulled in first.",
         )
-    if stored == 0 and checked and will_fetch == 0:
-        raise HTTPException(400, "No emails in that date range in Gmail or locally")
 
     search = IdeaSearch(
         question=question,

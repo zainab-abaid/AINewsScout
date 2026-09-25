@@ -7,16 +7,10 @@ from typing import Any, Callable, Optional
 
 from sqlmodel import select
 
-from backend.config import IDEA_SEARCH_EMAILS_PER_CHUNK
 from backend.database import session_scope
 from backend.db import Candidate, Category, Email, IdeaSearch, IdeaSearchHit, Job
 from backend.services.extract import dump_raw, extract_candidates
-from backend.services.gmail_sync import (
-    fetch_and_store,
-    get_label,
-    gmail_status,
-    missing_gmail_count,
-)
+from backend.services.imap_sync import fetch_and_store, imap_configured
 from backend.services.idea_search import (
     SearchEmail,
     chunk_emails,
@@ -170,37 +164,14 @@ def email_in_range(
     return True
 
 
-def preview_sync(date_from: Optional[date], date_to: Optional[date]) -> dict[str, Any]:
+def preview_sync() -> dict[str, Any]:
+    """Local counts only — IMAP listing happens when sync actually runs."""
     with session_scope() as session:
-        emails = [
-            e
-            for e in session.exec(select(Email)).all()
-            if email_in_range(e, date_from, date_to)
-        ]
-        ids = [e.id for e in emails if e.id is not None]
-        extracted = sum(1 for e in emails if e.extraction_status in DONE_STATUSES)
+        emails = list(session.exec(select(Email)).all())
         pending = sum(1 for e in emails if e.extraction_status in PENDING_STATUSES)
-        failed = sum(1 for e in emails if e.extraction_status == "failed")
-        cands = (
-            session.exec(select(Candidate).where(Candidate.email_id.in_(ids))).all()
-            if ids
-            else []
-        )
-        marked = sum(
-            1
-            for c in cands
-            if c.important or c.shortlisted or bool((c.notes or "").strip())
-        )
         return {
-            "date_from": date_from.isoformat() if date_from else None,
-            "date_to": date_to.isoformat() if date_to else None,
             "stored": len(emails),
-            "extracted": extracted,
             "pending": pending,
-            "failed": failed,
-            "candidates": len(cands),
-            "marked": marked,
-            "needs_confirm": extracted > 0,
         }
 
 
@@ -376,41 +347,25 @@ def search_emails_in_range(
         ]
 
 
-def _gmail_connected() -> bool:
-    try:
-        return bool(gmail_status().get("connected"))
-    except Exception:
-        return False
-
-
 def preview_search(
     date_from: Optional[date], date_to: Optional[date]
 ) -> dict[str, Any]:
+    """Search runs over emails already in the local DB (including historic ones).
+
+    If the inbox is configured, the search job also does a quick IMAP pull first
+    so brand-new forwards are included — but the preview only reports what is
+    already stored, since IMAP listing is not free.
+    """
     emails = search_emails_in_range(date_from, date_to)
     stored = len(emails)
-    connected = _gmail_connected()
-    will_fetch = 0
-    gmail_checked = False
-    if connected:
-        try:
-            will_fetch = missing_gmail_count(date_from, date_to)
-            gmail_checked = True
-        except Exception:
-            will_fetch = 0
-    expected = stored + will_fetch
-    if will_fetch:
-        per = IDEA_SEARCH_EMAILS_PER_CHUNK
-        chunks = (expected + per - 1) // per if expected else 0
-    else:
-        chunks = len(chunk_emails(emails))
+    chunks = len(chunk_emails(emails))
     return {
         "date_from": date_from.isoformat() if date_from else None,
         "date_to": date_to.isoformat() if date_to else None,
-        "emails": expected,
+        "emails": stored,
         "stored": stored,
-        "will_fetch": will_fetch,
-        "gmail_connected": connected,
-        "gmail_checked": gmail_checked,
+        "will_fetch": 0,
+        "inbox_configured": imap_configured(),
         "chunks": chunks,
     }
 
@@ -460,7 +415,7 @@ def run_idea_search_job(job_id: int) -> None:
                 session.delete(old)
 
         fetch_meta: dict[str, Any] = {}
-        if _gmail_connected():
+        if imap_configured():
             if not _search_exists(search_id):
                 _update_job(
                     job_id,
@@ -484,9 +439,7 @@ def run_idea_search_job(job_id: int) -> None:
                 _progress(job_id, data)
 
             try:
-                fetch_counts, _new_ids = fetch_and_store(
-                    date_from, date_to, get_label(), prog
-                )
+                fetch_counts, _new_ids = fetch_and_store(progress=prog)
             except Exception as exc:
                 raise RuntimeError(readable_model_error(exc)) from exc
             _progress(
@@ -513,7 +466,7 @@ def run_idea_search_job(job_id: int) -> None:
 
         emails = search_emails_in_range(date_from, date_to)
         if not emails:
-            raise RuntimeError("No emails in that date range after checking Gmail.")
+            raise RuntimeError("No emails in that date range in the local database.")
         chunks = chunk_emails(emails)
         _finish_search(
             search_id, emails_total=len(emails), chunks_total=len(chunks)
@@ -665,27 +618,19 @@ def run_extract_job(job_id: int) -> None:
 
 
 def run_sync_job(job_id: int) -> None:
+    """Pull allowed messages from the dedicated IMAP inbox, then extract new ones."""
     _running[job_id] = "sync"
     try:
         _update_job(job_id, status="running")
         with session_scope() as session:
             job = session.get(Job, job_id)
             payload = json.loads(job.payload_json) if job else {}
-        date_from = parse_iso_date(payload.get("date_from"))
-        date_to = parse_iso_date(payload.get("date_to"))
-        label = payload.get("label") or get_label()
         do_extract = payload.get("extract", True)
-        overwrite = bool(payload.get("overwrite_extracted"))
 
         def prog(data: dict[str, Any]) -> None:
             _progress(job_id, data)
 
-        counts, new_ids = fetch_and_store(date_from, date_to, label, prog)
-        range_rows = emails_in_range(date_from, date_to)
-        already = [r["id"] for r in range_rows if r["status"] in DONE_STATUSES]
-        pending = [r["id"] for r in range_rows if r["status"] in PENDING_STATUSES]
-        counts["already_extracted"] = len(already)
-        counts["overwrite"] = overwrite
+        counts, new_ids = fetch_and_store(progress=prog)
 
         extract_ids: list[int] = []
         seen: set[int] = set()
@@ -697,9 +642,15 @@ def run_sync_job(job_id: int) -> None:
                     extract_ids.append(eid)
 
         add_ids(new_ids)
-        add_ids(pending)
-        if overwrite:
-            add_ids(already)
+        with session_scope() as session:
+            pending = list(
+                session.exec(
+                    select(Email.id).where(
+                        Email.extraction_status.in_(list(PENDING_STATUSES))
+                    )
+                ).all()
+            )
+        add_ids([eid for eid in pending if eid is not None])
 
         if do_extract and extract_ids:
             _progress(
@@ -711,24 +662,10 @@ def run_sync_job(job_id: int) -> None:
                     "current": 0,
                     "total": len(extract_ids),
                     "activity": "starting",
-                    "overwrite": overwrite,
                 },
             )
-            extract_counts = extract_email_ids(
-                extract_ids, job_id=job_id, overwrite=overwrite
-            )
+            extract_counts = extract_email_ids(extract_ids, job_id=job_id)
             counts.update({f"extract_{k}": v for k, v in extract_counts.items()})
-        elif do_extract and already and not overwrite:
-            counts["extract_skipped"] = len(already)
-            counts["skipped_extracted"] = len(already)
-            _progress(
-                job_id,
-                {
-                    **counts,
-                    "phase": "done",
-                    "skipped_extracted": len(already),
-                },
-            )
         _update_job(
             job_id,
             status="done",

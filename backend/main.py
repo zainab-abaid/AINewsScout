@@ -11,16 +11,15 @@ from backend.routers.core import router as core_router
 from backend.routers.ops import router as ops_router
 from backend.routers.publish import router as publish_router
 from backend.routers.search import router as search_router
-from backend.services.gmail_sync import warmup_gmail_email
+from backend.services.imap_scheduler import start_imap_daily_sync
 from backend.services.jobs import resume_orphaned_jobs
-import threading
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
     resume_orphaned_jobs()
-    threading.Thread(target=warmup_gmail_email, daemon=True).start()
+    start_imap_daily_sync()
     yield
 
 

@@ -125,7 +125,7 @@ describe("searchProgress", () => {
     expect(searchProgress(search({ chunks_total: 4, chunks_done: 1 })).pct).toBe(25);
   });
 
-  it("tracks Gmail download against the listed count", () => {
+  it("tracks the inbox pull against the listed count", () => {
     expect(
       searchProgress(
         search({
@@ -139,7 +139,11 @@ describe("searchProgress", () => {
     ).toEqual({ pct: 25, determinate: true });
   });
 
-  it("is indeterminate while Gmail is still listing", () => {
+  it("is indeterminate while the inbox is still being listed", () => {
+    expect(searchProgress(search({ status: "running", phase: "connecting" }))).toEqual({
+      pct: 0,
+      determinate: false,
+    });
     expect(searchProgress(search({ status: "running", phase: "listing" }))).toEqual({
       pct: 0,
       determinate: false,
@@ -195,8 +199,7 @@ describe("status and scope wording", () => {
       searchScopeLabel({
         emails: 12,
         stored: 12,
-        will_fetch: 0,
-        gmail_connected: true,
+        inbox_configured: true,
         chunks: 3,
       }),
     ).toBe("12 stored");
@@ -204,35 +207,32 @@ describe("status and scope wording", () => {
       searchScopeLabel({
         emails: 1,
         stored: 1,
-        will_fetch: 0,
-        gmail_connected: false,
+        inbox_configured: false,
         chunks: 1,
       }),
     ).toBe("1 stored");
+  });
+
+  it("distinguishes an empty range from an inbox that was never set up", () => {
     expect(
       searchScopeLabel({
         emails: 0,
         stored: 0,
-        will_fetch: 0,
-        gmail_connected: false,
+        inbox_configured: true,
         chunks: 0,
       }),
-    ).toBe("No stored emails. Connect Gmail to pull them.");
-  });
-
-  it("says when missing issues will be pulled from Gmail", () => {
+    ).toBe("No stored emails in this range.");
     expect(
       searchScopeLabel({
-        emails: 14,
-        stored: 12,
-        will_fetch: 2,
-        gmail_connected: true,
-        chunks: 4,
+        emails: 0,
+        stored: 0,
+        inbox_configured: false,
+        chunks: 0,
       }),
-    ).toBe("12 stored · 2 new from Gmail");
+    ).toBe("No stored emails. Set up the dedicated inbox in .env to pull them.");
   });
 
-  it("names the Gmail download while a search is fetching", () => {
+  it("names the inbox pull while a search is fetching", () => {
     expect(
       searchStatusLine(
         search({
@@ -259,7 +259,16 @@ describe("status and scope wording", () => {
 
   it("mentions pulled emails on a finished search", () => {
     expect(searchStatusLine(search({ hits_total: 1, emails_total: 2, new_emails: 1 }))).toBe(
-      "1 finding across 2 emails · pulled 1 from Gmail",
+      "1 finding across 2 emails · pulled 1 from inbox",
+    );
+  });
+
+  it("says it is checking the inbox before the batches start", () => {
+    expect(searchStatusLine(search({ status: "running", phase: "connecting" }))).toBe(
+      "Checking inbox…",
+    );
+    expect(searchStatusLine(search({ status: "running", phase: "listing" }))).toBe(
+      "Checking inbox…",
     );
   });
 

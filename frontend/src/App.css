@@ -55,14 +55,13 @@ body {
   text-underline-offset: 3px; }
 .publish-err { font-size: .82rem; color: var(--danger); }
 
-.gmail-chip {
+.inbox-chip {
   font-size: .82rem; border: 1px solid var(--border); background: var(--card);
   border-radius: 999px; padding: .28rem .7rem; color: var(--muted);
   display: inline-flex; align-items: center; gap: .45rem;
 }
-.gmail-chip.ok { color: var(--important); border-color: #c5ddd2; }
-.gmail-chip.warn { color: var(--danger); }
-.chip-action { margin: 0; padding: 0; font-size: .78rem; }
+.inbox-chip.ok { color: var(--important); border-color: #c5ddd2; }
+.inbox-chip.warn { color: var(--danger); }
 
 .job-panel {
   background: var(--card);
@@ -502,18 +501,3 @@ button.linkish {
 .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; background: #f4f1ea; padding: .15rem .35rem; border-radius: 4px; }
 .ol-setup { color: var(--muted); padding-left: 1.2rem; }
 .ol-setup li { margin: .35rem 0; }
-.confirm-modal {
-  position: fixed; left: 50%; top: 18vh; transform: translateX(-50%);
-  width: min(34rem, calc(100vw - 2rem));
-  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-  padding: 1.25rem 1.35rem 1.1rem; z-index: 21;
-  box-shadow: 0 12px 40px rgba(0,0,0,.12);
-}
-.confirm-modal h2 { margin: 0 0 .6rem; font-size: 1.1rem; }
-.confirm-modal p { margin: 0 0 .7rem; color: var(--muted); }
-.confirm-modal p.warn { color: var(--danger); }
-.confirm-actions { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin-top: .4rem; }
-.btn-danger-quiet {
-  font: inherit; cursor: pointer; background: none; border: 1px solid var(--danger);
-  color: var(--danger); border-radius: 8px; padding: .45rem .8rem;
-}

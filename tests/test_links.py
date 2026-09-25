@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.services.links import hydrate_excerpt_links, normalize_inline_links
-from backend.services.mailparse import gmail_payload_text, html_to_markdown
+from backend.services.mailparse import mime_payload_text, html_to_markdown
 
 
 SAMPLE = (
@@ -60,7 +60,7 @@ def test_html_anchor_becomes_markdown_link():
     assert md == "See [Demystifying Agent Skills](https://example.com/paper) for details."
 
 
-def test_gmail_prefers_html_links_over_stripped_plain():
+def test_mime_prefers_html_links_over_stripped_plain():
     payload = {
         "mimeType": "multipart/alternative",
         "parts": [
@@ -78,5 +78,5 @@ def test_gmail_prefers_html_links_over_stripped_plain():
             },
         ],
     }
-    text = gmail_payload_text(payload)
+    text = mime_payload_text(payload)
     assert "[the paper](https://example.com/x)" in text

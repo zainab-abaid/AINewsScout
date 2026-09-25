@@ -1,33 +1,19 @@
 import json
 import threading
-from datetime import datetime, timezone
-from urllib.parse import quote
+from datetime import timezone
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
 from backend.config import OPENAI_MODEL, OPENAI_REASONING_EFFORT
 from backend.database import session_scope
 from backend.db import Email, Job
-from backend.schemas import (
-    ExtractRequest,
-    JobOut,
-    SyncPreviewOut,
-    SyncRequest,
-)
+from backend.schemas import ExtractRequest, JobOut, SyncRequest
 from backend.services.extract import openai_api_key
-from backend.services.gmail_sync import (
-    auth_url,
-    disconnect,
-    finish_oauth,
-    gmail_status,
-)
+from backend.services.imap_sync import imap_configured, imap_status
 from backend.services.jobs import (
     create_job,
     get_active_job,
-    parse_iso_date,
-    preview_sync,
     run_extract_job,
     run_sync_job,
 )
@@ -35,7 +21,7 @@ from backend.services.jobs import (
 router = APIRouter()
 
 
-def _utc(dt: datetime | None) -> datetime | None:
+def _utc(dt):
     if dt is None:
         return None
     if dt.tzinfo is None:
@@ -64,41 +50,6 @@ def job_out(job: Job) -> JobOut:
     )
 
 
-@router.get("/gmail/connect")
-def gmail_connect():
-    try:
-        url = auth_url()
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"auth_url": url}
-
-
-@router.get("/gmail/callback")
-def gmail_callback(request: Request):
-    frontend = "http://127.0.0.1:5173/"
-    params = request.query_params
-    error = params.get("error")
-    code = params.get("code")
-    state = params.get("state")
-    if error:
-        return RedirectResponse(f"{frontend}?gmail=error&detail={quote(error)}")
-    if not code:
-        return RedirectResponse(f"{frontend}?gmail=error&detail=missing_code")
-    try:
-        finish_oauth(code, state)
-    except Exception as exc:
-        return RedirectResponse(
-            f"{frontend}?gmail=error&detail={quote(str(exc)[:240])}"
-        )
-    return RedirectResponse(f"{frontend}?gmail=connected")
-
-
-@router.post("/gmail/disconnect")
-def gmail_disconnect():
-    disconnect()
-    return gmail_status()
-
-
 @router.get("/jobs/active", response_model=JobOut | None)
 def active_job():
     job = get_active_job()
@@ -116,23 +67,14 @@ def get_job(job_id: int):
         return job_out(job)
 
 
-@router.post("/sync/preview", response_model=SyncPreviewOut)
-def sync_preview(body: SyncRequest):
-    return preview_sync(
-        parse_iso_date(body.date_from),
-        parse_iso_date(body.date_to),
-    )
-
-
 @router.post("/sync", response_model=JobOut)
 def start_sync(body: SyncRequest):
-    status = gmail_status()
-    if not status.get("connected"):
-        raise HTTPException(400, "Connect Gmail first")
-    payload = body.model_dump()
-    if not payload.get("label"):
-        payload["label"] = status.get("label")
-    job = create_job("sync", payload)
+    if not imap_configured():
+        raise HTTPException(
+            400,
+            "Inbox is not configured. Set IMAP_USER, IMAP_PASSWORD, and IMAP_ALLOWED_FROM in .env",
+        )
+    job = create_job("sync", body.model_dump())
     threading.Thread(target=run_sync_job, args=(job.id,), daemon=True).start()
     return job_out(job)
 
@@ -159,10 +101,16 @@ def start_extract(body: ExtractRequest):
 
 @router.get("/settings/status")
 def settings_status():
-    gmail = gmail_status()
+    inbox = imap_status()
     key = openai_api_key()
     return {
-        **gmail,
+        "inbox_configured": inbox["configured"],
+        "inbox_enabled": inbox["enabled"],
+        "inbox_email": inbox["user"],
+        "inbox_host": inbox["host"],
+        "inbox_folder": inbox["folder"],
+        "allowed_from": inbox["allowed_from"],
+        "sync_hour": inbox["sync_hour"],
         "openai_configured": bool(key),
         "openai_model": OPENAI_MODEL,
         "openai_reasoning_effort": OPENAI_REASONING_EFFORT,

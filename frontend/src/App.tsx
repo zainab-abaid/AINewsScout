@@ -12,7 +12,6 @@ import {
   type SearchPreview,
   type SettingsStatus,
   type Stats,
-  type SyncPreview,
 } from "./api";
 import { MarkdownBody, MarkdownInline } from "./markdown";
 import {
@@ -76,16 +75,6 @@ const MARK_OPTIONS: { id: MarkFilter; label: string }[] = [
   { id: "shortlist", label: "Shortlisted by user" },
 ];
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function addDay(iso: string) {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 function num(p: Record<string, unknown>, key: string): number {
   const v = p[key];
   return typeof v === "number" ? v : Number(v) || 0;
@@ -131,6 +120,14 @@ function formatMarkedDate(iso: string) {
 function truncate(text: string, n = 80) {
   const t = text.trim();
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
+}
+
+/** The daily pull hour, written the way a clock reads it. */
+function syncHourLabel(hour: number) {
+  const h = Number.isFinite(hour) ? ((Math.trunc(hour) % 24) + 24) % 24 : 0;
+  const suffix = h < 12 ? "am" : "pm";
+  const twelve = h % 12 === 0 ? 12 : h % 12;
+  return `${twelve}${suffix}`;
 }
 
 function remainingEstimate(current: number, total: number) {
@@ -434,10 +431,7 @@ export default function App() {
   const [email, setEmail] = useState<EmailDetail | null>(null);
   const [emailExcerpt, setEmailExcerpt] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
-  const [syncFrom, setSyncFrom] = useState("");
-  const [syncTo, setSyncTo] = useState(todayIso());
   const [now, setNow] = useState(Date.now());
-  const [syncConfirm, setSyncConfirm] = useState<SyncPreview | null>(null);
   const [publishStatus, setPublishStatus] = useState<PublishStatus>({
     status: "idle",
     url: "",
@@ -454,7 +448,6 @@ export default function App() {
     setStats(s);
     setCategories(cats);
     setCandidates(cands);
-    setSyncFrom((prev) => prev || (s.date_to ? addDay(s.date_to) : todayIso()));
     try {
       setSettings(await api.settings());
     } catch (e) {
@@ -488,52 +481,24 @@ export default function App() {
     load().catch((e: Error) => setError(e.message));
   }, [load]);
 
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    const gmail = q.get("gmail");
-    if (!gmail) return;
-    if (gmail === "error") setError(q.get("detail") || "Gmail connect failed.");
-    window.history.replaceState({}, "", window.location.pathname);
-    api
-      .settings()
-      .then(setSettings)
-      .catch((e: Error) => setError(e.message));
-  }, []);
-
   const jobBusy = !!job && job.status !== "done" && job.status !== "failed";
 
-  async function startSync(overwrite: boolean) {
-    setSyncConfirm(null);
+  async function startSync() {
     setError("");
     setDismissedJobId(null);
     lastProgressLoad.current = "";
-    setJob(
-      await api.sync({
-        date_from: syncFrom || undefined,
-        date_to: syncTo || undefined,
-        extract: true,
-        overwrite_extracted: overwrite,
-      }),
-    );
+    setJob(await api.sync({ extract: true }));
   }
 
   async function requestSync() {
     setError("");
     setDismissedJobId(null);
-    if (!settings?.connected) {
-      setError("Connect Gmail first.");
+    if (settings && !settings.inbox_configured) {
+      setError("Set up the dedicated inbox in .env first.");
       return;
     }
     try {
-      const preview = await api.syncPreview({
-        date_from: syncFrom || undefined,
-        date_to: syncTo || undefined,
-      });
-      if (preview.needs_confirm) {
-        setSyncConfirm(preview);
-        return;
-      }
-      await startSync(false);
+      await startSync();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -666,7 +631,7 @@ export default function App() {
         </div>
         <div className="header-right">
           <PublishControl status={publishStatus} onPublish={startPublish} />
-          <GmailControl settings={settings} onChange={setSettings} setError={setError} />
+          <InboxStatus settings={settings} />
         </div>
       </header>
 
@@ -728,13 +693,9 @@ export default function App() {
           <JobPanel
             settings={settings}
             job={showJob ? job : null}
-            busy={jobBusy || !!syncConfirm}
+            busy={jobBusy}
             error={error}
-            syncFrom={syncFrom}
-            syncTo={syncTo}
             now={now}
-            onSyncFrom={setSyncFrom}
-            onSyncTo={setSyncTo}
             onSync={async () => {
               try {
                 await requestSync();
@@ -903,7 +864,7 @@ export default function App() {
                   { tagFilters, markFilters, search, dateFrom, dateTo, hiddenCats },
                   categories,
                 )
-                  ? "No unprocessed candidates. Sync Gmail for a date range to pull new newsletters."
+                  ? "No unprocessed candidates. New newsletters arrive in the dedicated inbox and are pulled in automatically each day — or click Sync inbox now to pull them straight away."
                   : "No candidates match these filters."}
               </div>
             ) : (
@@ -935,15 +896,6 @@ export default function App() {
             else if (await patch(commentCandidate.id, { notes: text })) setCommentFor(null);
           }}
           onClose={() => setCommentFor(null)}
-        />
-      )}
-
-      {syncConfirm && (
-        <SyncConfirm
-          preview={syncConfirm}
-          onSkip={() => startSync(false).catch((e: Error) => setError(e.message))}
-          onOverwrite={() => startSync(true).catch((e: Error) => setError(e.message))}
-          onCancel={() => setSyncConfirm(null)}
         />
       )}
 
@@ -983,77 +935,12 @@ export default function App() {
   );
 }
 
-function SyncConfirm({
-  preview,
-  onSkip,
-  onOverwrite,
-  onCancel,
-}: {
-  preview: SyncPreview;
-  onSkip: () => void;
-  onOverwrite: () => void;
-  onCancel: () => void;
-}) {
-  const range =
-    preview.date_from && preview.date_to
-      ? `${preview.date_from} – ${preview.date_to}`
-      : preview.date_from
-        ? `from ${preview.date_from}`
-        : preview.date_to
-          ? `through ${preview.date_to}`
-          : "this date range";
-  return (
-    <>
-      <div className="email-backdrop" onClick={onCancel} />
-      <div className="confirm-modal" role="dialog" aria-labelledby="sync-confirm-title">
-        <h2 id="sync-confirm-title">Already extracted</h2>
-        <p>
-          {range} already has <strong>{preview.extracted}</strong> newsletter
-          {preview.extracted === 1 ? "" : "s"} that GPT has processed
-          {preview.candidates
-            ? ` (${preview.candidates} probe idea${preview.candidates === 1 ? "" : "s"})`
-            : ""}
-          . Sync will still check Gmail for anything new.
-        </p>
-        {preview.pending > 0 && (
-          <p>
-            {preview.pending} email{preview.pending === 1 ? "" : "s"} in this range still need extraction
-            and will be processed either way.
-          </p>
-        )}
-        {preview.marked > 0 && (
-          <p className="warn">
-            {preview.marked} idea{preview.marked === 1 ? "" : "s"} in this range{" "}
-            {preview.marked === 1 ? "is" : "are"} marked important, shortlisted, or have notes.
-            Overwriting will delete those marks.
-          </p>
-        )}
-        <div className="confirm-actions">
-          <button type="button" className="btn-primary" onClick={onSkip}>
-            Skip already extracted
-          </button>
-          <button type="button" className="btn-danger-quiet" onClick={onOverwrite}>
-            Overwrite earlier extractions
-          </button>
-          <button type="button" className="btn-quiet" onClick={onCancel}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
 function JobPanel({
   settings,
   job,
   busy,
   error,
-  syncFrom,
-  syncTo,
   now,
-  onSyncFrom,
-  onSyncTo,
   onSync,
   onDismiss,
 }: {
@@ -1061,36 +948,28 @@ function JobPanel({
   job: Job | null;
   busy: boolean;
   error: string;
-  syncFrom: string;
-  syncTo: string;
   now: number;
-  onSyncFrom: (v: string) => void;
-  onSyncTo: (v: string) => void;
   onSync: () => void;
   onDismiss: () => void;
 }) {
   return (
     <section className="job-panel">
       <div className="job-row">
-        <label>
-          From
-          <input type="date" value={syncFrom} onChange={(e) => onSyncFrom(e.target.value)} disabled={busy} />
-        </label>
-        <label>
-          To
-          <input type="date" value={syncTo} onChange={(e) => onSyncTo(e.target.value)} disabled={busy} />
-        </label>
         <button type="button" className="btn-primary" disabled={busy} onClick={onSync}>
-          Sync Gmail
+          Sync inbox now
         </button>
       </div>
       {!job && (
         <p className="job-idle">
-          {settings?.connected
-            ? `Gmail connected as ${settings.email || "you"}. Sync downloads that date range, then GPT-5.4 reads each new newsletter and extracts probe ideas (about 2–3 minutes per email).`
-            : settings?.has_client
-              ? "Click Connect Gmail in the header, then sync a date range."
-              : "Add GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET to .env, restart, then connect Gmail."}
+          {!settings
+            ? "Checking the dedicated inbox…"
+            : !settings.inbox_configured
+              ? "Set IMAP_USER, IMAP_PASSWORD, and IMAP_ALLOWED_FROM in .env and restart, so newsletters forwarded to the dedicated inbox can be pulled in."
+              : `Forward newsletters to ${settings.inbox_email || "the dedicated inbox"} and they are pulled in ${
+                  settings.inbox_enabled
+                    ? `automatically every day at ${syncHourLabel(settings.sync_hour)}`
+                    : "on request (the daily pull is switched off)"
+                }. Sync inbox now pulls anything new straight away, then GPT reads each new newsletter and extracts probe ideas (about 2–3 minutes per email).`}
         </p>
       )}
       {error && <p className="err">{error}</p>}
@@ -1113,12 +992,14 @@ function JobProgress({ job, now, onDismiss }: { job: Job; now: number; onDismiss
   const ideasThisEmail = num(p, "ideas_this_email");
   const alreadyExtracted = num(p, "already_extracted") || num(p, "skipped_extracted");
   const extractSkipped = num(p, "extract_skipped");
-  const overwrite =
-    Boolean(p.overwrite) || Boolean(job.payload?.overwrite_extracted);
   const subject = str(p, "subject");
   const running = job.status === "queued" || job.status === "running";
   const isSync = job.kind === "sync";
-  const downloading = phase === "listing" || phase === "fetching" || phase === "fetched";
+  const downloading =
+    phase === "connecting" ||
+    phase === "listing" ||
+    phase === "fetching" ||
+    phase === "fetched";
   const extracting = phase === "extracting";
 
   let title = "Working…";
@@ -1130,23 +1011,25 @@ function JobProgress({ job, now, onDismiss }: { job: Job; now: number; onDismiss
   if (job.status === "failed") {
     title = job.kind === "extract" ? "Extraction failed" : "Sync failed";
     detail = job.error || "Something went wrong.";
+  } else if (phase === "connecting") {
+    title = isSync ? "Step 1 of 2: Connecting to the inbox" : "Connecting to the inbox";
+    detail = "Signing in to the dedicated mailbox.";
+    hint = "The pull is usually quick. The slow part is next: GPT reads each new newsletter and extracts probe ideas.";
   } else if (phase === "listing") {
-    title = isSync ? "Step 1 of 2: Finding emails in Gmail" : "Finding emails in Gmail";
-    detail = "Searching the AINews label for this date range.";
-    hint = "Download is usually quick. The slow part is next: GPT reads each new newsletter and extracts probe ideas.";
+    title = isSync ? "Step 1 of 2: Finding emails in inbox" : "Finding emails in inbox";
+    detail = "Listing messages from the allowed sender addresses.";
+    hint = "The pull is usually quick. The slow part is next: GPT reads each new newsletter and extracts probe ideas.";
   } else if (phase === "fetching") {
     title = listed
-      ? `Step 1 of 2: Downloading ${current} of ${listed} from Gmail`
-      : "Step 1 of 2: Downloading emails from Gmail";
+      ? `Step 1 of 2: Downloading ${current} of ${listed} from inbox`
+      : "Step 1 of 2: Downloading from inbox";
     detail = `${newEmails} new, ${skipped} already stored.`;
-    hint = overwrite
-      ? "After download, GPT will re-extract this range and replace earlier probe ideas."
-      : "After download, GPT extracts new or pending emails only. Already extracted newsletters are skipped.";
+    hint = "After the pull, GPT extracts new or pending emails only. Already extracted newsletters are skipped.";
     determinate = listed > 0;
     pct = listed ? Math.min(100, (current / listed) * 100) : 0;
   } else if (phase === "fetched") {
-    title = "Step 1 of 2: Download complete";
-    detail = `${listed} in range. ${newEmails} new, ${skipped} already stored.`;
+    title = "Step 1 of 2: Inbox pull complete";
+    detail = `${listed} message${listed === 1 ? "" : "s"} from the allowed senders. ${newEmails} new, ${skipped} already stored.`;
     hint =
       newEmails > 0
         ? `Starting idea extraction for ${newEmails} new email${newEmails === 1 ? "" : "s"}.`
@@ -1156,26 +1039,19 @@ function JobProgress({ job, now, onDismiss }: { job: Job; now: number; onDismiss
   } else if (phase === "extracting") {
     const n = current || 0;
     const of = total || newEmails || 0;
-    const verb = overwrite ? "Re-extracting" : "Extracting";
     title = isSync
       ? of
-        ? `Step 2 of 2: ${verb} probe ideas — ${n} of ${of}`
-        : `Step 2 of 2: ${verb} probe ideas`
+        ? `Step 2 of 2: Extracting probe ideas — ${n} of ${of}`
+        : "Step 2 of 2: Extracting probe ideas"
       : of
-        ? `${verb} probe ideas — ${n} of ${of}`
-        : `${verb} probe ideas`;
+        ? `Extracting probe ideas — ${n} of ${of}`
+        : "Extracting probe ideas";
     detail = subject
-      ? overwrite
-        ? `GPT-5.4 is re-reading “${truncate(subject, 90)}” and replacing earlier probe ideas.`
-        : `GPT-5.4 is reading “${truncate(subject, 90)}” and pulling out probe ideas.`
-      : overwrite
-        ? "GPT-5.4 is re-reading newsletters and replacing earlier probe ideas."
-        : "GPT-5.4 is reading each newsletter and pulling out probe ideas.";
+      ? `GPT-5.4 is reading “${truncate(subject, 90)}” and pulling out probe ideas.`
+      : "GPT-5.4 is reading each newsletter and pulling out probe ideas.";
     const eta = remainingEstimate(n, of);
     hint = [
-      overwrite
-        ? "Overwrite is on. Previous ideas for these emails will be replaced."
-        : "This is the slow part — about 2–3 minutes per email with high reasoning.",
+      "This is the slow part — about 2–3 minutes per email with high reasoning.",
       eta,
       extracted ? `${extracted} newsletter${extracted === 1 ? "" : "s"} already yielded ideas.` : "",
       ideasThisEmail ? `Last email: ${ideasThisEmail} idea${ideasThisEmail === 1 ? "" : "s"}.` : "",
@@ -1188,21 +1064,19 @@ function JobProgress({ job, now, onDismiss }: { job: Job; now: number; onDismiss
   } else if (job.status === "done") {
     title = job.kind === "extract" ? "Extraction complete" : "Sync complete";
     const skippedExtracted = alreadyExtracted || (extracted === 0 ? extractSkipped : 0);
-    if (newEmails === 0 && extracted === 0 && skippedExtracted > 0 && !overwrite) {
+    if (newEmails === 0 && extracted === 0 && skippedExtracted > 0) {
       title = "Already extracted";
-      detail = `No new emails. ${skippedExtracted} newsletter${skippedExtracted === 1 ? " was" : "s were"} already processed — GPT was not re-run.`;
+      detail = `Nothing new in the inbox. ${skippedExtracted} newsletter${skippedExtracted === 1 ? " was" : "s were"} already processed — GPT was not re-run.`;
     } else {
       const parts = [];
-      if (listed) parts.push(`${listed} emails in range`);
+      if (listed) parts.push(`${listed} message${listed === 1 ? "" : "s"} in the inbox`);
       if (newEmails || skipped) parts.push(`${newEmails} new, ${skipped} already stored`);
-      if (overwrite && extracted) {
-        parts.push(`Re-extracted ideas from ${extracted} email${extracted === 1 ? "" : "s"}`);
-      } else if (extracted) {
+      if (extracted) {
         parts.push(`Extracted ideas from ${extracted} email${extracted === 1 ? "" : "s"}`);
       } else {
         parts.push("No new ideas extracted");
       }
-      if (!overwrite && skippedExtracted) {
+      if (skippedExtracted) {
         parts.push(`skipped ${skippedExtracted} already extracted`);
       }
       if (empty) parts.push(`${empty} with no probes`);
@@ -1234,7 +1108,7 @@ function JobProgress({ job, now, onDismiss }: { job: Job; now: number; onDismiss
           {downloadState !== "hidden" && (
             <li className={downloadState}>
               <span className="step-n">1</span>
-              Download from Gmail
+              Pull from inbox
             </li>
           )}
           <li className={extractState}>
@@ -1723,8 +1597,9 @@ function SearchView({
         <h2>Ask a question across your emails</h2>
         <p className="search-intro">
           Every newsletter in the range is read in batches by GPT-5.4, which quotes the
-          passages that bear on your question and says why each one is relevant. Missing
-          issues are pulled from Gmail first; anything already stored is left as-is.
+          passages that bear on your question and says why each one is relevant. The search
+          covers the stored emails; anything new sitting in the dedicated inbox is pulled in
+          first.
         </p>
         <form
           onSubmit={(e) => {
@@ -2170,55 +2045,25 @@ function PublishControl({
   );
 }
 
-function GmailControl({
-  settings,
-  onChange,
-  setError,
-}: {
-  settings: SettingsStatus | null;
-  onChange: (s: SettingsStatus) => void;
-  setError: (s: string) => void;
-}) {
+/** Which mailbox the newsletters are forwarded to, and whether the daily pull is on. */
+function InboxStatus({ settings }: { settings: SettingsStatus | null }) {
   if (!settings) {
-    return <span className="gmail-chip">Checking Gmail…</span>;
+    return <span className="inbox-chip">Checking inbox…</span>;
   }
-  if (settings.connected) {
-    return (
-      <span className="gmail-chip ok">
-        Gmail · {settings.email || "connected"}
-        <button
-          type="button"
-          className="btn-quiet chip-action"
-          onClick={async () => {
-            try {
-              onChange(await api.disconnect());
-            } catch (e) {
-              setError((e as Error).message);
-            }
-          }}
-        >
-          Disconnect
-        </button>
-      </span>
-    );
+  if (!settings.inbox_configured) {
+    return <span className="inbox-chip warn">Set up the dedicated inbox in .env</span>;
   }
-  if (!settings.has_client) {
-    return <span className="gmail-chip warn">Add Gmail OAuth client to .env</span>;
-  }
+  const schedule = settings.inbox_enabled
+    ? `auto daily at ${syncHourLabel(settings.sync_hour)}`
+    : "daily pull off";
   return (
-    <button
-      type="button"
-      className="btn-primary"
-      onClick={async () => {
-        try {
-          const { auth_url } = await api.connectUrl();
-          window.location.href = auth_url;
-        } catch (e) {
-          setError((e as Error).message);
-        }
-      }}
+    <span
+      className={`inbox-chip ${settings.inbox_enabled ? "ok" : "warn"}`}
+      title={`${settings.inbox_host} · ${settings.inbox_folder}${
+        settings.allowed_from.length ? ` · from ${settings.allowed_from.join(", ")}` : ""
+      }`}
     >
-      Connect Gmail
-    </button>
+      Inbox · {settings.inbox_email || "configured"} · {schedule}
+    </span>
   );
 }

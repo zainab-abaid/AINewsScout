@@ -39,12 +39,12 @@ export function countByRelevance(hits: SearchHit[]): { direct: number; related: 
 }
 
 /**
- * How far along the batches are. While Gmail is listing or downloading, the
- * bar tracks listed messages; once batches are counted it tracks those.
+ * How far along the batches are. While the inbox is being listed or downloaded,
+ * the bar tracks listed messages; once batches are counted it tracks those.
  */
 export function searchProgress(search: IdeaSearch): { pct: number; determinate: boolean } {
   const phase = search.phase || "";
-  if (phase === "listing") return { pct: 0, determinate: false };
+  if (phase === "connecting" || phase === "listing") return { pct: 0, determinate: false };
   if (phase === "fetching") {
     const listed = search.listed || 0;
     if (listed <= 0) return { pct: 0, determinate: false };
@@ -56,23 +56,21 @@ export function searchProgress(search: IdeaSearch): { pct: number; determinate: 
   return { pct: Math.min(100, (done / total) * 100), determinate: true };
 }
 
+/**
+ * What a range covers. Searches read the local database, so the count is what
+ * is already stored; the search job still pulls anything new from the inbox
+ * first, which the preview cannot know about.
+ */
 export function searchScopeLabel(preview: {
   emails: number;
   stored: number;
-  will_fetch: number;
-  gmail_connected: boolean;
+  inbox_configured: boolean;
   chunks: number;
 }): string {
-  if (preview.will_fetch > 0) {
-    const stored = preview.stored
-      ? `${preview.stored} stored · `
-      : "";
-    return `${stored}${preview.will_fetch} new from Gmail`;
-  }
   if (preview.emails <= 0) {
-    return preview.gmail_connected
-      ? "No emails in this range."
-      : "No stored emails. Connect Gmail to pull them.";
+    return preview.inbox_configured
+      ? "No stored emails in this range."
+      : "No stored emails. Set up the dedicated inbox in .env to pull them.";
   }
   return `${preview.emails} stored`;
 }
@@ -81,7 +79,7 @@ export function searchStatusLine(search: IdeaSearch): string {
   const found = `${search.hits_total} finding${search.hits_total === 1 ? "" : "s"}`;
   if (isSearchRunning(search)) {
     const phase = search.phase || "";
-    if (phase === "listing") return "Checking Gmail…";
+    if (phase === "connecting" || phase === "listing") return "Checking inbox…";
     if (phase === "fetching") {
       const listed = search.listed || 0;
       const current = Math.min(search.current || 0, listed);
@@ -103,7 +101,7 @@ export function searchStatusLine(search: IdeaSearch): string {
     : "";
   const pulled =
     search.new_emails > 0
-      ? ` · pulled ${search.new_emails} from Gmail`
+      ? ` · pulled ${search.new_emails} from inbox`
       : "";
   return `${found} across ${search.emails_total} email${search.emails_total === 1 ? "" : "s"}${pulled}${skipped}`;
 }

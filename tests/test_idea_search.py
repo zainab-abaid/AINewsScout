@@ -155,10 +155,10 @@ class TestExcerptMatch:
 
 
 @pytest.fixture(autouse=True)
-def no_live_gmail(monkeypatch):
+def no_live_inbox(monkeypatch):
     """These tests must not list or download from the real mailbox."""
-    monkeypatch.setattr(jobs, "_gmail_connected", lambda: False)
-    monkeypatch.setattr(jobs, "missing_gmail_count", lambda *_a, **_k: 0)
+    monkeypatch.setattr(jobs, "imap_configured", lambda: False)
+
 
 
 class TestReadableModelError:
@@ -368,47 +368,23 @@ class TestSearchJob:
             assert session.get(Job, job.id).status == "failed"
 
 
-class TestSearchPullsMissingEmails:
-    def test_preview_counts_missing_gmail_messages(self, client, corpus, monkeypatch):
-        monkeypatch.setattr(jobs, "_gmail_connected", lambda: True)
-        monkeypatch.setattr(jobs, "missing_gmail_count", lambda *_a, **_k: 2)
+class TestSearchPullsFromInbox:
+    def test_preview_reports_only_stored_emails(self, client, corpus, monkeypatch):
+        monkeypatch.setattr(jobs, "imap_configured", lambda: True)
         resp = client.post(
             "/api/searches/preview",
             json={"question": "ignored", "date_from": "2026-07-20", "date_to": "2026-08-19"},
         )
         body = resp.json()
         assert body["stored"] == 5
-        assert body["will_fetch"] == 2
-        assert body["emails"] == 7
-        assert body["gmail_connected"] is True
-        assert body["chunks"] == 2  # 7 emails, 4 per batch
+        assert body["emails"] == 5
+        assert body["will_fetch"] == 0
+        assert body["inbox_configured"] is True
+        assert body["chunks"] == 2  # 5 emails, 4 per batch
 
-    def test_starts_a_search_when_the_range_is_only_in_gmail(
-        self, client, corpus, monkeypatch
-    ):
+    def test_rejects_an_empty_range(self, client, corpus, monkeypatch):
         monkeypatch.setattr(search_router_module, "openai_api_key", lambda: "sk-test")
-        monkeypatch.setattr(
-            search_router_module, "run_idea_search_job", lambda job_id: None
-        )
-        monkeypatch.setattr(jobs, "_gmail_connected", lambda: True)
-        monkeypatch.setattr(jobs, "missing_gmail_count", lambda *_a, **_k: 1)
-        resp = client.post(
-            "/api/searches",
-            json={
-                "question": "harnesses?",
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-02",
-            },
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["emails_total"] == 1
-
-    def test_still_rejects_an_empty_range_when_gmail_has_nothing_either(
-        self, client, corpus, monkeypatch
-    ):
-        monkeypatch.setattr(search_router_module, "openai_api_key", lambda: "sk-test")
-        monkeypatch.setattr(jobs, "_gmail_connected", lambda: True)
-        monkeypatch.setattr(jobs, "missing_gmail_count", lambda *_a, **_k: 0)
+        monkeypatch.setattr(jobs, "imap_configured", lambda: True)
         resp = client.post(
             "/api/searches",
             json={
@@ -418,21 +394,20 @@ class TestSearchPullsMissingEmails:
             },
         )
         assert resp.status_code == 400
-        assert "gmail" in resp.json()["detail"].lower()
+        assert "stored emails" in resp.json()["detail"].lower()
 
-    def test_fetches_missing_emails_then_searches_them(self, corpus, monkeypatch):
-        fetched_ranges: list[tuple] = []
+    def test_fetches_from_inbox_then_searches(self, corpus, monkeypatch):
         seen: list[int] = []
 
-        def fake_fetch(date_from, date_to, label, progress):
-            fetched_ranges.append((date_from, date_to, label))
-            progress({"phase": "fetching", "listed": 1, "new_emails": 1, "skipped": 5})
+        def fake_fetch(progress=None, dry_run=False):
+            if progress:
+                progress({"phase": "fetching", "listed": 1, "new_emails": 1, "skipped": 0})
             with Session(database.get_engine()) as session:
                 session.add(
                     Email(
-                        gmail_id="g-new",
+                        gmail_id="imap:new",
                         subject="[AINews] newly pulled",
-                        from_addr="news@example.com",
+                        from_addr="you@example.com",
                         date_raw="Mon, 20 Jul 2026 09:00:00 +0000",
                         sent_at=datetime(2026, 7, 20),
                         body_md="Harness choice moved scores in July.",
@@ -440,9 +415,9 @@ class TestSearchPullsMissingEmails:
                     )
                 )
                 session.commit()
-            return {"listed": 1, "new_emails": 1, "skipped": 5}, [99]
+            return {"listed": 1, "new_emails": 1, "skipped": 0}, [99]
 
-        monkeypatch.setattr(jobs, "_gmail_connected", lambda: True)
+        monkeypatch.setattr(jobs, "imap_configured", lambda: True)
         monkeypatch.setattr(jobs, "fetch_and_store", fake_fetch)
         monkeypatch.setattr(
             jobs, "search_chunk", lambda q, chunk: seen.extend(e.id for e in chunk) or []
@@ -451,45 +426,38 @@ class TestSearchPullsMissingEmails:
         search_id = start_search(date_from="2026-07-20", date_to="2026-08-19")
         job = run_search(search_id)
 
-        assert fetched_ranges[0][0].isoformat() == "2026-07-20"
-        assert fetched_ranges[0][1].isoformat() == "2026-08-19"
         assert job.status == "done"
         assert json.loads(job.progress_json)["new_emails"] == 1
-        assert json.loads(job.progress_json)["skipped"] == 5
         search = read_search(search_id)
         assert search.emails_total == 6
         with Session(database.get_engine()) as session:
-            extra = session.exec(select(Email).where(Email.gmail_id == "g-new")).first()
+            extra = session.exec(select(Email).where(Email.gmail_id == "imap:new")).first()
             assert extra is not None
             assert extra.id in seen
-            assert extra.extraction_status == "pending"
 
-    def test_does_not_call_gmail_when_disconnected(self, corpus, monkeypatch):
+    def test_does_not_call_inbox_when_unconfigured(self, corpus, monkeypatch):
         calls: list[str] = []
 
         def boom(*_a, **_k):
             calls.append("fetch")
-            raise AssertionError("must not download when Gmail is disconnected")
+            raise AssertionError("must not download when inbox is unconfigured")
 
         monkeypatch.setattr(jobs, "fetch_and_store", boom)
         monkeypatch.setattr(jobs, "search_chunk", lambda q, chunk: [])
         run_search(start_search())
         assert calls == []
 
-    def test_skips_gmail_ids_already_stored(self, corpus, monkeypatch):
-        skipped = {"n": 0}
-
-        def fake_fetch(date_from, date_to, label, progress):
-            skipped["n"] += 5
-            progress({"phase": "fetched", "listed": 5, "new_emails": 0, "skipped": 5})
+    def test_skips_messages_already_stored(self, corpus, monkeypatch):
+        def fake_fetch(progress=None, dry_run=False):
+            if progress:
+                progress({"phase": "fetched", "listed": 5, "new_emails": 0, "skipped": 5})
             return {"listed": 5, "new_emails": 0, "skipped": 5}, []
 
-        monkeypatch.setattr(jobs, "_gmail_connected", lambda: True)
+        monkeypatch.setattr(jobs, "imap_configured", lambda: True)
         monkeypatch.setattr(jobs, "fetch_and_store", fake_fetch)
         monkeypatch.setattr(jobs, "search_chunk", lambda q, chunk: [])
         search_id = start_search()
         run_search(search_id)
-        assert skipped["n"] == 5
         assert read_search(search_id).emails_total == 5
 
 
@@ -512,7 +480,7 @@ class TestSearchApi:
             json={"question": "harnesses?", "date_from": "2020-01-01", "date_to": "2020-01-02"},
         )
         assert resp.status_code == 400
-        assert "connect gmail" in resp.json()["detail"].lower()
+        assert "stored emails" in resp.json()["detail"].lower()
 
     def test_rejects_a_search_with_no_api_key(self, client, corpus, monkeypatch):
         monkeypatch.setattr(search_router_module, "openai_api_key", lambda: "")
@@ -548,8 +516,7 @@ class TestSearchApi:
             "emails": 3,
             "stored": 3,
             "will_fetch": 0,
-            "gmail_connected": False,
-            "gmail_checked": False,
+            "inbox_configured": False,
             "chunks": 1,
         }
         assert client.get("/api/searches").json() == []
