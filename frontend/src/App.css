@@ -701,6 +701,19 @@ button.linkish {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+/* .comment-form-actions button wins over .btn-primary for background;
+   without this, white label on card background looks blank. */
+.sign-in-form .comment-form-actions .btn-primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+  font-weight: 650;
+  padding: .5rem 1.1rem;
+}
+.sign-in-form .comment-form-actions .btn-primary:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
 .category-readonly {
   font-size: .82rem;
   color: var(--muted);

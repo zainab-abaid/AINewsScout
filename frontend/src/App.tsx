@@ -2501,7 +2501,7 @@ function SignInForm({
           disabled={busy || !token.trim()}
           onClick={submit}
         >
-          {busy ? "Checking…" : "Unlock"}
+          {busy ? "Checking…" : "Sign in"}
         </button>
         {onCancel && (
           <button type="button" className="btn-quiet" onClick={onCancel} disabled={busy}>
