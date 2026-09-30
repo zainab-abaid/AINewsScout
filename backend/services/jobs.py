@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from sqlmodel import select
@@ -143,6 +143,51 @@ def parse_iso_date(value: Optional[str]) -> Optional[date]:
     if not value:
         return None
     return date.fromisoformat(value[:10])
+
+
+def newsletter_date_bounds() -> tuple[Optional[date], Optional[date]]:
+    """Oldest and newest stored newsletter days, ignoring rows with no sent date."""
+    with session_scope() as session:
+        rows = session.exec(select(Email.sent_at).where(Email.sent_at.is_not(None))).all()
+    days: list[date] = []
+    for sent_at in rows:
+        if isinstance(sent_at, datetime):
+            days.append(sent_at.date())
+        elif isinstance(sent_at, date):
+            days.append(sent_at)
+    if not days:
+        return None, None
+    return min(days), max(days)
+
+
+def validate_search_dates(
+    date_from: Optional[date], date_to: Optional[date]
+) -> Optional[str]:
+    """Reject impossible ranges. None means the dates are usable.
+
+    A missing bound still means "no limit" so older saved searches keep working.
+    Dates past tomorrow UTC are future in every timezone this app is used from.
+    A day outside the stored newsletter span is rejected with that span named.
+    """
+    latest_allowed = datetime.now(timezone.utc).date() + timedelta(days=1)
+    if date_from and date_from > latest_allowed:
+        return "Start date cannot be in the future."
+    if date_to and date_to > latest_allowed:
+        return "End date cannot be in the future."
+    if date_from and date_to and date_to < date_from:
+        return "End date cannot be before the start date."
+    oldest, newest = newsletter_date_bounds()
+    if oldest and newest:
+        outside = False
+        for day in (date_from, date_to):
+            if day and (day < oldest or day > newest):
+                outside = True
+        if outside:
+            return (
+                f"Available newsletters start from {oldest.isoformat()} "
+                f"and go up to {newest.isoformat()}."
+            )
+    return None
 
 
 def _email_day(email: Email) -> Optional[str]:
@@ -337,13 +382,21 @@ def extract_email_ids(
 def search_emails_in_range(
     date_from: Optional[date], date_to: Optional[date]
 ) -> list[SearchEmail]:
-    """Stored emails a search should read, oldest first."""
+    """Stored emails a search should read, oldest first.
+
+    Filtered in SQL so a two-week question does not load every newsletter body.
+    """
     with session_scope() as session:
-        rows = [
-            e
-            for e in session.exec(select(Email)).all()
-            if e.id is not None and email_in_range(e, date_from, date_to)
-        ]
+        stmt = select(Email).where(Email.sent_at.is_not(None))
+        if date_from is not None:
+            stmt = stmt.where(
+                Email.sent_at >= datetime.combine(date_from, time.min)
+            )
+        if date_to is not None:
+            stmt = stmt.where(
+                Email.sent_at < datetime.combine(date_to + timedelta(days=1), time.min)
+            )
+        rows = list(session.exec(stmt).all())
         rows.sort(key=lambda e: (e.sent_at or datetime.min, e.id or 0))
         return [
             SearchEmail(

@@ -25,7 +25,7 @@ Past probes, related artifacts, higher-priority research areas, and the not-usef
 | Role | Token | Can do |
 | --- | --- | --- |
 | Locked | none / wrong token | No content — access gate only |
-| Viewer | `VIEWER_TOKEN` | Browse candidates, marked items, and semantic search |
+| Viewer | `VIEWER_TOKEN` | Browse candidates, marked items, and AI search |
 | Analyst | `ANALYST_TOKEN` | Mark / comment / categorise (existing categories), sync, extract, keep search hits |
 | Admin | `ADMIN_TOKEN` | Everything analyst can, plus Admin tab (research context + add/deprecate categories) |
 
@@ -124,7 +124,7 @@ uv run python -m backend.tools.test_imap_pull --store  # write new matches to th
 
 ## Application features
 
-The UI has four tabs when signed in as admin: **Important items extracted from emails**, **Review marked items**, **Semantic search**, and **Admin**. Viewers and analysts see the first three.
+The UI has four tabs when signed in as admin: **Important items extracted from emails**, **Review marked items**, **AI search**, and **Admin**. Viewers and analysts see the first three.
 
 ### Important items extracted from emails
 

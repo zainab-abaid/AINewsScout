@@ -29,6 +29,7 @@ from backend.services.jobs import (
     parse_iso_date,
     preview_search,
     run_idea_search_job,
+    validate_search_dates,
 )
 from backend.services.links import hydrate_excerpt_links
 
@@ -104,9 +105,22 @@ def _hit_out(hit: IdeaSearchHit, email: Optional[Email]) -> SearchHitOut:
     )
 
 
+def _parsed_range(date_from: Optional[str], date_to: Optional[str]):
+    try:
+        start = parse_iso_date(date_from)
+        end = parse_iso_date(date_to)
+    except ValueError as exc:
+        raise HTTPException(400, "Dates must be valid YYYY-MM-DD values.") from exc
+    problem = validate_search_dates(start, end)
+    if problem:
+        raise HTTPException(400, problem)
+    return start, end
+
+
 @router.post("/searches/preview", response_model=SearchPreviewOut)
 def searches_preview(body: IdeaSearchCreate, _role: str = require_role("viewer")):
-    return preview_search(parse_iso_date(body.date_from), parse_iso_date(body.date_to))
+    start, end = _parsed_range(body.date_from, body.date_to)
+    return preview_search(start, end)
 
 
 @router.post("/searches", response_model=IdeaSearchOut)
@@ -120,9 +134,8 @@ def create_search(
         raise HTTPException(400, "Enter a question to search for")
     if not openai_api_key():
         raise HTTPException(400, "OPENAI_API_KEY is missing from .env")
-    preview = preview_search(
-        parse_iso_date(body.date_from), parse_iso_date(body.date_to)
-    )
+    start, end = _parsed_range(body.date_from, body.date_to)
+    preview = preview_search(start, end)
     stored = int(preview.get("stored") or 0)
     if stored == 0:
         raise HTTPException(

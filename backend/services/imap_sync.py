@@ -10,7 +10,6 @@ import imaplib
 import logging
 import email as email_lib
 from datetime import datetime, timedelta
-from email.utils import parseaddr
 from typing import Any, Callable, Optional
 
 from sqlmodel import select
@@ -52,10 +51,32 @@ def imap_status() -> dict[str, Any]:
     }
 
 
-def _from_allowed(from_header: str) -> bool:
-    _, addr = parseaddr(from_header or "")
-    haystack = f"{from_header or ''} {addr}".lower()
+_ALLOW_HEADERS = (
+    "From",
+    "To",
+    "Cc",
+    "Sender",
+    "Delivered-To",
+    "Resent-From",
+    "X-Forwarded-For",
+    "X-Forwarded-To",
+)
+
+
+def headers_allowed(*values: str) -> bool:
+    """True when any allowed address appears in the header text.
+
+    Gmail auto-forward keeps the newsletter's original From (for example
+    Substack) and records the account that forwarded it in To and
+    X-Forwarded-For. Matching only From drops those messages.
+    """
+    haystack = " ".join(value or "" for value in values).lower()
     return any(allowed in haystack for allowed in IMAP_ALLOWED_FROM)
+
+
+def _message_allowed(msg: email_lib.message.Message) -> bool:
+    values = [_decode_header_value(msg.get(key)) for key in _ALLOW_HEADERS]
+    return headers_allowed(*values)
 
 
 def _imap_id(message_id: str, uid: bytes) -> str:
@@ -74,24 +95,24 @@ def _connect() -> imaplib.IMAP4_SSL:
     return client
 
 
-def _search_candidate_uids(client: imaplib.IMAP4_SSL) -> list[bytes]:
-    """List UIDs that might match an allowed From address.
+def _fetch_bytes(data: Any) -> Optional[bytes]:
+    if not data or data[0] is None:
+        return None
+    part = data[0]
+    if isinstance(part, tuple) and len(part) >= 2 and isinstance(part[1], (bytes, bytearray)):
+        return bytes(part[1])
+    return None
 
-    IMAP SEARCH FROM is approximate; we still filter on the header.
+
+def _search_candidate_uids(client: imaplib.IMAP4_SSL) -> list[bytes]:
+    """Every UID in the folder. Header filtering happens after this.
+
+    SEARCH FROM misses Gmail auto-forwards, whose From stays the newsletter.
     """
-    seen: set[bytes] = set()
-    ordered: list[bytes] = []
-    for allowed in IMAP_ALLOWED_FROM:
-        # Prefer the address local@domain form for SEARCH.
-        needle = allowed
-        typ, data = client.uid("SEARCH", None, "FROM", f'"{needle}"')
-        if typ != "OK":
-            continue
-        for uid in (data[0] or b"").split():
-            if uid and uid not in seen:
-                seen.add(uid)
-                ordered.append(uid)
-    return ordered
+    typ, data = client.uid("SEARCH", None, "ALL")
+    if typ != "OK" or not data:
+        return []
+    return [uid for uid in (data[0] or b"").split() if uid]
 
 
 def fetch_and_store(
@@ -134,28 +155,42 @@ def fetch_and_store(
             }
 
         for i, uid in enumerate(uids, start=1):
-            typ, data = client.uid("FETCH", uid, "(BODY.PEEK[])")
-            if typ != "OK" or not data or data[0] is None:
+            # Headers first. Already-stored mail is skipped without downloading
+            # the body, which is what made every AI search wait on the whole inbox.
+            typ, data = client.uid(
+                "FETCH",
+                uid,
+                "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID FROM TO CC SENDER "
+                "DELIVERED-TO RESENT-FROM X-FORWARDED-FOR X-FORWARDED-TO)])",
+            )
+            header = _fetch_bytes(data) if typ == "OK" else None
+            if not header:
                 counts["skipped"] += 1
                 say({"phase": "fetching", "stage": "imap", "current": i, **counts})
                 continue
-            raw = data[0][1]
-            if not isinstance(raw, (bytes, bytearray)):
-                counts["skipped"] += 1
-                continue
-            msg = email_lib.message_from_bytes(bytes(raw))
-            from_addr = _decode_header_value(msg.get("From"))
-            if not _from_allowed(from_addr):
+            msg_h = email_lib.message_from_bytes(header)
+            if not _message_allowed(msg_h):
                 counts["rejected_from"] += 1
                 say({"phase": "fetching", "stage": "imap", "current": i, **counts})
                 continue
-            counts["matched"] += 1
-            message_id = (msg.get("Message-ID") or msg.get("Message-Id") or "").strip()
+            message_id = (msg_h.get("Message-ID") or msg_h.get("Message-Id") or "").strip()
             gid = _imap_id(message_id, uid)
             if gid in existing_gids or (message_id and message_id in existing_mids):
                 counts["skipped"] += 1
                 say({"phase": "fetching", "stage": "imap", "current": i, **counts})
                 continue
+
+            typ, data = client.uid("FETCH", uid, "(BODY.PEEK[])")
+            raw = _fetch_bytes(data) if typ == "OK" else None
+            if not raw:
+                counts["skipped"] += 1
+                say({"phase": "fetching", "stage": "imap", "current": i, **counts})
+                continue
+            msg = email_lib.message_from_bytes(raw)
+            from_addr = _decode_header_value(msg.get("From"))
+            message_id = (msg.get("Message-ID") or msg.get("Message-Id") or message_id).strip()
+            gid = _imap_id(message_id, uid)
+            counts["matched"] += 1
 
             subject = _decode_header_value(msg.get("Subject")) or "(no subject)"
             date_raw = msg.get("Date") or ""
@@ -229,11 +264,20 @@ def run_imap_sync_once() -> dict[str, int]:
     if not (IMAP_SYNC_ENABLED and imap_configured()):
         log.info("IMAP daily sync skipped (disabled or not configured)")
         return {}
-    log.info(
-        "IMAP sync starting for %s (allowed_from=%s)",
-        IMAP_USER,
-        IMAP_ALLOWED_FROM,
-    )
+    log.info("IMAP sync starting for %s", IMAP_USER)
     counts, new_ids = fetch_and_store()
-    log.info("IMAP sync done: %s new_ids=%s", counts, new_ids)
+    log.info("IMAP sync stored %s new emails (%s)", counts.get("new_emails", 0), counts)
+    if new_ids:
+        # Import lazily: jobs imports this module.
+        from backend.services.extract import openai_api_key
+        from backend.services.jobs import extract_email_ids
+
+        if openai_api_key():
+            log.info("IMAP sync extracting %s new emails", len(new_ids))
+            extract_email_ids(new_ids)
+        else:
+            log.warning(
+                "IMAP sync stored %s emails but OPENAI_API_KEY is missing, so they were not extracted",
+                len(new_ids),
+            )
     return counts

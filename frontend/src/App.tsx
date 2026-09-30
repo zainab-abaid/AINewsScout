@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { dateRangeError, defaultAiSearchRange, todayISO, type NewsletterBounds } from "./dates";
 import {
   api,
   setStoredToken,
@@ -74,7 +75,7 @@ const TABS: { id: TabId; label: string; sub: string; adminOnly?: boolean }[] = [
   },
   {
     id: "search",
-    label: "Semantic search",
+    label: "AI search",
     sub: "Ask a question across full newsletters",
   },
   {
@@ -699,6 +700,13 @@ export default function App() {
 
   const keywordActive = !!search.trim();
   const searchingAllDb = keywordActive && searchAllDb;
+  const newsletterBounds: NewsletterBounds | null =
+    stats?.date_from && stats?.date_to
+      ? { oldest: stats.date_from, newest: stats.date_to }
+      : null;
+  const reviewDateError = dateRangeError(dateFrom, dateTo, newsletterBounds);
+  const appliedDateFrom = reviewDateError ? "" : dateFrom;
+  const appliedDateTo = reviewDateError ? "" : dateTo;
 
   const visible = useMemo(
     () =>
@@ -707,11 +715,20 @@ export default function App() {
         markFilters,
         search,
         searchAllDb,
-        dateFrom,
-        dateTo,
+        dateFrom: appliedDateFrom,
+        dateTo: appliedDateTo,
         hiddenCats,
       }),
-    [candidates, tagFilters, markFilters, search, searchAllDb, dateFrom, dateTo, hiddenCats],
+    [
+      candidates,
+      tagFilters,
+      markFilters,
+      search,
+      searchAllDb,
+      appliedDateFrom,
+      appliedDateTo,
+      hiddenCats,
+    ],
   );
 
   // While searching the whole DB, show every match in one processable list.
@@ -939,11 +956,21 @@ export default function App() {
               </label>
               <label className="date-mini">
                 From
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                <input
+                  type="date"
+                  value={dateFrom}
+                  max={todayISO()}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
               </label>
               <label className="date-mini">
                 To
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                <input
+                  type="date"
+                  value={dateTo}
+                  max={todayISO()}
+                  onChange={(e) => setDateTo(e.target.value)}
+                />
               </label>
               <button
                 type="button"
@@ -954,6 +981,7 @@ export default function App() {
               </button>
               <span className="filter-count">{mainCards.length} shown</span>
             </div>
+            {reviewDateError && <p className="err date-range-error">{reviewDateError}</p>}
             <div className="keyword-filter-row">
               <div className="keyword-filter-heading">
                 <h3 className="keyword-filter-title">Keyword Search</h3>
@@ -970,7 +998,7 @@ export default function App() {
                     by the filters above (case-insensitive match on topic, idea, snippet,
                     and title). Tick “Search all candidates in the database” to run the
                     same keyword search over every extracted candidate in the database.
-                    For semantic search over full newsletters, use the Semantic search tab.
+                    For AI search over full newsletters, use the AI search tab.
                   </span>
                 </span>
               </div>
@@ -1021,6 +1049,7 @@ export default function App() {
         />
       ) : view === "search" ? (
         <SearchView
+          newsletterBounds={newsletterBounds}
           onOpenEmail={openEmail}
           setError={setError}
           error={error}
@@ -1643,6 +1672,7 @@ function MarkedView({
   return (
     <>
       {error && <p className="err marked-error">{error}</p>}
+      <div className="marked-toolbar">
       <div className="filter-bar">
         <div className="segmented">
           {MARK_VIEWS.map((opt) => (
@@ -1702,7 +1732,7 @@ function MarkedView({
             setSearch("");
           }}
         >
-          Clear
+          Clear filters
         </button>
         <span className="filter-count">{rows.length} shown</span>
       </div>
@@ -1710,7 +1740,7 @@ function MarkedView({
         <label className="keyword-filter">
           <span className="keyword-filter-label">
             Keyword search over the candidate list on this tab (case-insensitive). Filters items
-            already loaded from the database — not full newsletter text, and not semantic search.
+            already loaded from the database — not full newsletter text, and not AI search.
           </span>
           <input
             type="search"
@@ -1719,6 +1749,7 @@ function MarkedView({
             onChange={(e) => setSearch(e.target.value)}
           />
         </label>
+      </div>
       </div>
 
       <main id="marked-list">
@@ -1761,6 +1792,7 @@ const EXAMPLE_QUESTION =
  * and streams findings back, so results appear while the search is still going.
  */
 function SearchView({
+  newsletterBounds,
   onOpenEmail,
   setError,
   error,
@@ -1771,6 +1803,7 @@ function SearchView({
   canAdmin = false,
   onSignIn,
 }: {
+  newsletterBounds: NewsletterBounds | null;
   onOpenEmail: (id: number, excerpt: string) => void;
   setError: (s: string) => void;
   error: string;
@@ -1784,6 +1817,7 @@ function SearchView({
   const [question, setQuestion] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const defaultsApplied = useRef(false);
   const [history, setHistory] = useState<IdeaSearch[]>([]);
   const [active, setActive] = useState<IdeaSearchDetail | null>(null);
   const [preview, setPreview] = useState<SearchPreview | null>(null);
@@ -1794,6 +1828,18 @@ function SearchView({
   const [now, setNow] = useState(Date.now());
 
   const running = isSearchRunning(active);
+  const searchDateError = dateRangeError(from, to, newsletterBounds);
+  const defaultRange = newsletterBounds ? defaultAiSearchRange(newsletterBounds) : null;
+  const usingDefaultRange =
+    !!defaultRange && from === defaultRange.from && to === defaultRange.to;
+
+  useEffect(() => {
+    if (defaultsApplied.current || !newsletterBounds) return;
+    const range = defaultAiSearchRange(newsletterBounds);
+    setFrom(range.from);
+    setTo(range.to);
+    defaultsApplied.current = true;
+  }, [newsletterBounds]);
 
   const openSearch = useCallback(
     async (id: number) => {
@@ -1821,7 +1867,7 @@ function SearchView({
   }, [openSearch, setError]);
 
   useEffect(() => {
-    if (!from && !to) {
+    if ((!from && !to) || dateRangeError(from, to, newsletterBounds)) {
       setPreview(null);
       return;
     }
@@ -1838,7 +1884,7 @@ function SearchView({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [from, to]);
+  }, [from, to, newsletterBounds]);
 
   useEffect(() => {
     if (!running || !active) return;
@@ -1863,7 +1909,7 @@ function SearchView({
 
   async function run() {
     const q = question.trim();
-    if (!q || starting) return;
+    if (!q || starting || running || searchDateError || !from || !to) return;
     setStarting(true);
     setError("");
     try {
@@ -1905,11 +1951,12 @@ function SearchView({
   return (
     <>
       <section className="search-panel">
-        <h2>Semantic search over full newsletters</h2>
+        <h2>AI search over full newsletters</h2>
         <p className="search-intro">
           Ask a question and GPT reads whole newsletters in batches, quoting the passages that
-          bear on it. This is semantic search over full email text — not the keyword filter on
-          the first tab. New forwards in the dedicated inbox are pulled in first when needed.
+          bear on it. This is AI search over full email text — not the keyword filter on the
+          first tab. It defaults to the last two weeks. New forwards in the dedicated inbox are
+          pulled in first when needed.
         </p>
         <form
           onSubmit={(e) => {
@@ -1934,6 +1981,7 @@ function SearchView({
               <input
                 type="date"
                 value={from}
+                max={todayISO()}
                 disabled={starting || running}
                 onChange={(e) => setFrom(e.target.value)}
               />
@@ -1943,6 +1991,7 @@ function SearchView({
               <input
                 type="date"
                 value={to}
+                max={todayISO()}
                 disabled={starting || running}
                 onChange={(e) => setTo(e.target.value)}
               />
@@ -1950,7 +1999,9 @@ function SearchView({
             <button
               type="submit"
               className="btn-primary"
-              disabled={starting || running || !question.trim()}
+              disabled={
+                starting || running || !question.trim() || !!searchDateError || !from || !to
+              }
             >
               {running ? "Searching…" : "Search emails"}
             </button>
@@ -1964,10 +2015,34 @@ function SearchView({
               </button>
             )}
             <span className="search-scope">
+              {usingDefaultRange
+                ? `Searching the last two weeks (${from} to ${to}). `
+                : from && to
+                  ? `${from} to ${to}. `
+                  : "Defaults to the last two weeks. "}
               {preview ? searchScopeLabel(preview) : ""}
             </span>
           </div>
         </form>
+        {searchDateError && <p className="err date-range-error">{searchDateError}</p>}
+        {(starting || running) && (
+          <div className="search-live" role="status" aria-live="polite">
+            <p>
+              {running && active
+                ? searchStatusLine(active)
+                : "Starting AI search…"}
+              {running && active ? ` · ${elapsed(active.created_at, now)} elapsed` : ""}
+            </p>
+            <div className="progress-track">
+              <div
+                className={`progress-fill ${progress && progress.determinate ? "" : "indeterminate"}`}
+                style={
+                  progress && progress.determinate ? { width: `${progress.pct}%` } : undefined
+                }
+              />
+            </div>
+          </div>
+        )}
         {error && <p className="err">{error}</p>}
       </section>
 
@@ -2438,7 +2513,7 @@ function SignInForm({
           ? "Admin can edit research priorities, past probes, and categories. Changes apply to new newsletters only."
           : mode === "analyst"
             ? "Analyst can mark items, sync the inbox, and extract."
-            : "Viewer can browse candidates and run semantic search, but cannot edit."}
+            : "Viewer can browse candidates and run AI search, but cannot edit."}
       </p>
       {authMeta && mode === "viewer" && !authMeta.viewer_token_set && (
         <p className="err">VIEWER_TOKEN is not set in .env yet.</p>
@@ -2675,7 +2750,18 @@ function AdminView({
         </p>
         <ul className="admin-item-list">
           {ctx.priority_areas.map((p: ResearchPriority) => (
-            <li key={p.id}>
+            <li key={p.id} className="admin-priority-item">
+              <button
+                type="button"
+                className="btn-quiet admin-priority-remove"
+                disabled={busy}
+                aria-label={`Remove ${p.name}`}
+                onClick={() =>
+                  run(() => api.deletePriority(p.id), "Priority removed from future prompts.")
+                }
+              >
+                Remove
+              </button>
               <details>
                 <summary>{p.name}</summary>
                 <textarea
@@ -2701,16 +2787,6 @@ function AdminView({
                     );
                   }}
                 />
-                <button
-                  type="button"
-                  className="btn-quiet"
-                  disabled={busy}
-                  onClick={() =>
-                    run(() => api.deletePriority(p.id), "Priority removed from future prompts.")
-                  }
-                >
-                  Remove
-                </button>
               </details>
             </li>
           ))}

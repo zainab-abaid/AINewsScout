@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -19,6 +20,7 @@ from backend.services.jobs import resume_orphaned_jobs
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     init_db()
     resume_orphaned_jobs()
     start_imap_daily_sync()

@@ -373,7 +373,7 @@ class TestSearchPullsFromInbox:
         monkeypatch.setattr(jobs, "imap_configured", lambda: True)
         resp = client.post(
             "/api/searches/preview",
-            json={"question": "ignored", "date_from": "2026-07-20", "date_to": "2026-08-19"},
+            json={"question": "ignored", "date_from": "2026-08-15", "date_to": "2026-08-19"},
         )
         body = resp.json()
         assert body["stored"] == 5
@@ -394,7 +394,7 @@ class TestSearchPullsFromInbox:
             },
         )
         assert resp.status_code == 400
-        assert "stored emails" in resp.json()["detail"].lower()
+        assert "available newsletters" in resp.json()["detail"].lower()
 
     def test_fetches_from_inbox_then_searches(self, corpus, monkeypatch):
         seen: list[int] = []
@@ -480,7 +480,19 @@ class TestSearchApi:
             json={"question": "harnesses?", "date_from": "2020-01-01", "date_to": "2020-01-02"},
         )
         assert resp.status_code == 400
-        assert "stored emails" in resp.json()["detail"].lower()
+        assert "available newsletters" in resp.json()["detail"].lower()
+
+    def test_rejects_an_end_date_before_the_start(self, client, corpus):
+        resp = client.post(
+            "/api/searches",
+            json={
+                "question": "harnesses?",
+                "date_from": "2026-08-18",
+                "date_to": "2026-08-16",
+            },
+        )
+        assert resp.status_code == 400
+        assert "before" in resp.json()["detail"].lower()
 
     def test_rejects_a_search_with_no_api_key(self, client, corpus, monkeypatch):
         monkeypatch.setattr(search_router_module, "openai_api_key", lambda: "")
