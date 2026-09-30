@@ -232,10 +232,12 @@ function CommentBox({
   value,
   onSave,
   onCancel,
+  placeholder,
 }: {
   value: string;
   onSave: (text: string) => Promise<unknown>;
   onCancel: () => void;
+  placeholder: string;
 }) {
   const [text, setText] = useState(value);
   const [busy, setBusy] = useState(false);
@@ -263,7 +265,7 @@ function CommentBox({
         rows={2}
         value={text}
         disabled={busy}
-        placeholder="Why is this worth a probe? (optional)"
+        placeholder={placeholder}
         aria-label="Your comment"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -397,6 +399,7 @@ function CommentPrompt({
   onSave,
   onClose,
   canAdmin = false,
+  prompt,
 }: {
   c: Candidate;
   categories: Category[];
@@ -405,6 +408,7 @@ function CommentPrompt({
   onSave: (text: string) => Promise<unknown>;
   onClose: () => void;
   canAdmin?: boolean;
+  prompt: "important" | "probe";
 }) {
   return (
     <>
@@ -430,7 +434,16 @@ function CommentPrompt({
           />
         </div>
 
-        <CommentBox value={c.notes} onSave={onSave} onCancel={onClose} />
+        <CommentBox
+          value={c.notes}
+          onSave={onSave}
+          onCancel={onClose}
+          placeholder={
+            prompt === "probe"
+              ? "Why is this worth a probe? (optional)"
+              : "Why is this important? (optional)"
+          }
+        />
       </div>
     </>
   );
@@ -498,7 +511,10 @@ export default function App() {
   const [error, setError] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [dismissedJobId, setDismissedJobId] = useState<number | null>(null);
-  const [commentFor, setCommentFor] = useState<number | null>(null);
+  const [commentFor, setCommentFor] = useState<{
+    id: number;
+    prompt: "important" | "probe";
+  } | null>(null);
   const [email, setEmail] = useState<EmailDetail | null>(null);
   const [emailExcerpt, setEmailExcerpt] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
@@ -766,7 +782,7 @@ export default function App() {
     return { important, shortlisted, processed, unprocessed };
   }, [candidates]);
   const commentCandidate = commentFor
-    ? candidates.find((c) => c.id === commentFor) ?? null
+    ? candidates.find((c) => c.id === commentFor.id) ?? null
     : null;
 
   return (
@@ -1101,7 +1117,7 @@ export default function App() {
                     onPatch={patch}
                     onAddCategory={addCategory}
                     onOpenEmail={openEmail}
-                    onComment={setCommentFor}
+                    onComment={(id, prompt) => setCommentFor({ id, prompt })}
                     canEdit={canEdit}
                     canAdmin={canAdmin}
                   />
@@ -1148,7 +1164,7 @@ export default function App() {
                   onPatch={patch}
                   onAddCategory={addCategory}
                   onOpenEmail={openEmail}
-                  onComment={setCommentFor}
+                  onComment={(id, prompt) => setCommentFor({ id, prompt })}
                   canEdit={canEdit}
                   canAdmin={canAdmin}
                 />
@@ -1165,6 +1181,7 @@ export default function App() {
           onPatch={patch}
           onAddCategory={addCategory}
           canAdmin={canAdmin}
+          prompt={commentFor?.prompt ?? "important"}
           onSave={async (text) => {
             // Keep the editor open on failure so the comment is not lost.
             if (text === commentCandidate.notes) setCommentFor(null);
@@ -1453,7 +1470,7 @@ function CandidateCard({
   onPatch: (id: number, body: Record<string, unknown>) => Promise<boolean>;
   onAddCategory: (name: string) => Promise<Category>;
   onOpenEmail: (id: number, excerpt: string) => void;
-  onComment: (id: number) => void;
+  onComment: (id: number, prompt: "important" | "probe") => void;
   canEdit?: boolean;
   canAdmin?: boolean;
 }) {
@@ -1461,7 +1478,7 @@ function CandidateCard({
   async function toggleMark(field: "important" | "shortlisted") {
     const turningOn = !c[field];
     const ok = await onPatch(c.id, { [field]: turningOn });
-    if (ok && turningOn) onComment(c.id);
+    if (ok && turningOn) onComment(c.id, field === "shortlisted" ? "probe" : "important");
   }
 
   const cls = [
@@ -1536,7 +1553,11 @@ function CandidateCard({
         <p className="field-label">Analyzer agent comment:</p>
         <p className="idea">{c.main_idea}</p>
       </div>
-      <CommentDisplay c={c} onEdit={() => onComment(c.id)} canEdit={canEdit} />
+      <CommentDisplay
+        c={c}
+        onEdit={() => onComment(c.id, c.shortlisted ? "probe" : "important")}
+        canEdit={canEdit}
+      />
     </article>
   );
 }
@@ -1590,6 +1611,11 @@ function MarkedRow({
       {editing && canEdit ? (
         <CommentBox
           value={c.notes}
+          placeholder={
+            c.shortlisted
+              ? "Why is this worth a probe? (optional)"
+              : "Why is this important? (optional)"
+          }
           onSave={async (text) => {
             if (text === c.notes) setEditing(false);
             else if (await onPatch(c.id, { notes: text })) setEditing(false);
@@ -1613,7 +1639,7 @@ function MarkedRow({
             className={`btn-important ${c.important ? "is-on" : ""}`}
             onClick={() => onPatch(c.id, { important: !c.important })}
           >
-            {c.important ? "Unmark Important" : "Mark Important"}
+            {c.important ? "Mark not important" : "Mark Important"}
           </button>
           <button
             type="button"
@@ -2393,7 +2419,11 @@ function KeepHitPrompt({
           rows={3}
           value={notes}
           disabled={busy}
-          placeholder="Why is this worth a probe? (optional)"
+          placeholder={
+            shortlisted
+              ? "Why is this worth a probe? (optional)"
+              : "Why is this important? (optional)"
+          }
           aria-label="Your comment"
           onChange={(e) => setNotes(e.target.value)}
           onKeyDown={(e) => {
