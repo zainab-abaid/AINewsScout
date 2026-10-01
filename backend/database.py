@@ -45,6 +45,7 @@ def _add_missing_columns() -> None:
         "candidates": {"marked_at": "DATETIME"},
         "idea_search_hits": {"candidate_id": "INTEGER"},
         "categories": {"deprecated": "BOOLEAN DEFAULT 0"},
+        "research_probes": {"probe_date": "TEXT"},
     }
     with get_engine().begin() as conn:
         for table, columns in added.items():

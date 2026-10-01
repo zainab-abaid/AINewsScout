@@ -784,6 +784,7 @@ button.linkish {
   align-items: center;
   gap: .45rem;
 }
+.probe-summary-title { min-width: 0; }
 .admin-item-list details[open] summary { margin-bottom: .55rem; }
 .admin-priority-item {
   display: grid;
@@ -840,6 +841,7 @@ button.linkish {
 .admin-add-form input,
 .admin-add-form textarea,
 .admin-ingest input,
+.admin-ingest textarea,
 .admin-inline-row input {
   font: inherit;
   width: 100%;
@@ -847,6 +849,13 @@ button.linkish {
   border-radius: 8px;
   padding: .45rem .6rem;
   margin: .35rem 0;
+}
+.admin-item-list summary .probe-date-input {
+  width: auto;
+  margin: 0 0 0 auto;
+  font-size: .82rem;
+  font-weight: 500;
+  padding: .15rem .35rem;
 }
 .admin-source-tag {
   font-size: .72rem;

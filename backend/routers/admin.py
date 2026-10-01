@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Header, HTTPException, Query, UploadFile
+from datetime import date
+
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 
 from backend.auth import require_role, role_from_token, tokens_configured, unlock
 from backend.schemas import (
@@ -18,6 +20,7 @@ from backend.schemas import (
     ResearchPriorityIn,
     ResearchPriorityOut,
     ResearchPriorityPatch,
+    TextIngestIn,
     UrlIngestIn,
 )
 from backend.services import content_ingest
@@ -25,6 +28,12 @@ from backend.services import research_context as rc
 from backend.services.llm_logs import get_llm_log, list_llm_logs
 
 router = APIRouter()
+
+
+def _new_probe_date(value: str | None) -> str:
+    """Date stamped on a probe the admin is adding now."""
+    cleaned = rc.clean_probe_date(value) if value else None
+    return cleaned or date.today().isoformat()
 
 
 def _ctx_out() -> ResearchContextOut:
@@ -108,7 +117,10 @@ def create_probe(body: ResearchItemIn, _role: str = require_role("admin")):
 
 @router.patch("/admin/probes/{probe_id}", response_model=ResearchItemOut)
 def patch_probe(probe_id: int, body: ResearchItemPatch, _role: str = require_role("admin")):
-    updated = rc.update_probe(probe_id, title=body.title, description=body.description)
+    try:
+        updated = rc.update_probe(probe_id, **body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if not updated:
         raise HTTPException(404, "Probe not found")
     return updated
@@ -133,6 +145,32 @@ def ingest_probe_url(body: UrlIngestIn, _role: str = require_role("admin")):
             description=summary.description,
             source_url=body.url.strip(),
             source_kind="url",
+            probe_date=_new_probe_date(body.probe_date),
+        )
+        return IngestPreviewOut(
+            title=saved["title"],
+            description=saved["description"],
+            source_url=saved.get("source_url"),
+            source_kind=saved["source_kind"],
+        )
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/admin/probes/ingest-text", response_model=IngestPreviewOut)
+def ingest_probe_text(body: TextIngestIn, _role: str = require_role("admin")):
+    text = body.text.strip()[: content_ingest.MAX_CHARS]
+    if len(text) < 40:
+        raise HTTPException(400, "Paste a longer description (at least a few sentences).")
+    try:
+        summary = content_ingest.summarise_source(
+            kind="probe", source_text=text, source_label="pasted text"
+        )
+        saved = rc.add_probe(
+            title=summary.title,
+            description=summary.description,
+            source_kind="text",
+            probe_date=_new_probe_date(body.probe_date),
         )
         return IngestPreviewOut(
             title=saved["title"],
@@ -147,6 +185,7 @@ def ingest_probe_url(body: UrlIngestIn, _role: str = require_role("admin")):
 @router.post("/admin/probes/ingest-pdf", response_model=IngestPreviewOut)
 async def ingest_probe_pdf(
     file: UploadFile = File(...),
+    probe_date: str | None = Form(default=None),
     _role: str = require_role("admin"),
 ):
     raw = await file.read()
@@ -163,6 +202,7 @@ async def ingest_probe_pdf(
             description=summary.description,
             source_url=name,
             source_kind="pdf",
+            probe_date=_new_probe_date(probe_date),
         )
         return IngestPreviewOut(
             title=saved["title"],

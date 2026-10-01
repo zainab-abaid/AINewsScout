@@ -7,6 +7,7 @@ databases; the old skills/01 markdown file is no longer used at runtime.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,32 @@ from backend.db import (
     ResearchPriority,
     ResearchProbe,
 )
+
+
+def clean_probe_date(value: str | None) -> str | None:
+    """YYYY-MM-DD, or None when the admin has not set a date yet."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw).isoformat()
+    except ValueError as exc:
+        raise ValueError("Probe date must be YYYY-MM-DD") from exc
+
+
+def _probe_dict(row: ResearchProbe) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "title": row.title,
+        "description": row.description,
+        "source_url": row.source_url,
+        "source_kind": row.source_kind,
+        "sort_order": row.sort_order,
+        "probe_date": row.probe_date,
+    }
+
 
 SEED_PATH = Path(__file__).resolve().parent.parent / "seed" / "research_context_seed.json"
 LEGACY_SETTING_KEY = "research_context_json"
@@ -143,17 +170,7 @@ def load_research_context() -> dict[str, Any]:
             )
         ).all()
         return {
-            "probes": [
-                {
-                    "id": p.id,
-                    "title": p.title,
-                    "description": p.description,
-                    "source_url": p.source_url,
-                    "source_kind": p.source_kind,
-                    "sort_order": p.sort_order,
-                }
-                for p in probes
-            ],
+            "probes": [_probe_dict(p) for p in probes],
             "artifacts": [
                 {
                     "id": a.id,
@@ -190,6 +207,9 @@ def research_context_markdown(data: dict[str, Any] | None = None) -> str:
         title = probe.get("title") or probe.get("name") or "Untitled"
         lines.append(f"## {i}. {title}")
         lines.append("")
+        if probe.get("probe_date"):
+            lines.append(f"Date: {probe['probe_date']}")
+            lines.append("")
         if probe.get("description"):
             lines.append(str(probe["description"]))
             lines.append("")
@@ -250,7 +270,13 @@ def add_probe(
     description: str = "",
     source_url: str | None = None,
     source_kind: str = "manual",
+    probe_date: str | None = None,
 ) -> dict[str, Any]:
+    # Omitted date means "today" — the day the admin added the probe.
+    # An explicit blank stays empty so seeded rows are not backfilled.
+    stored_date = (
+        date.today().isoformat() if probe_date is None else clean_probe_date(probe_date)
+    )
     with session_scope() as session:
         order = _max_order(session, ResearchProbe) + 1
         row = ResearchProbe(
@@ -258,19 +284,13 @@ def add_probe(
             description=description.strip(),
             source_url=source_url,
             source_kind=source_kind,
+            probe_date=stored_date,
             sort_order=order,
         )
         session.add(row)
         session.flush()
         session.refresh(row)
-        return {
-            "id": row.id,
-            "title": row.title,
-            "description": row.description,
-            "source_url": row.source_url,
-            "source_kind": row.source_kind,
-            "sort_order": row.sort_order,
-        }
+        return _probe_dict(row)
 
 
 def update_probe(probe_id: int, **fields: Any) -> dict[str, Any] | None:
@@ -282,17 +302,12 @@ def update_probe(probe_id: int, **fields: Any) -> dict[str, Any] | None:
             row.title = str(fields["title"]).strip()
         if "description" in fields and fields["description"] is not None:
             row.description = str(fields["description"]).strip()
+        if "probe_date" in fields:
+            row.probe_date = clean_probe_date(fields["probe_date"])
         session.add(row)
         session.flush()
         session.refresh(row)
-        return {
-            "id": row.id,
-            "title": row.title,
-            "description": row.description,
-            "source_url": row.source_url,
-            "source_kind": row.source_kind,
-            "sort_order": row.sort_order,
-        }
+        return _probe_dict(row)
 
 
 def delete_probe(probe_id: int) -> bool:

@@ -110,6 +110,8 @@ def test_category_deprecate_keeps_assignment(client: TestClient):
 
 
 def test_manual_probe_and_not_useful(client: TestClient):
+    from datetime import date
+
     bare = TestClient(client.app)
     admin = {"X-Access-Token": TEST_ADMIN_TOKEN}
     probe = bare.post(
@@ -118,7 +120,23 @@ def test_manual_probe_and_not_useful(client: TestClient):
         json={"title": "Test probe", "description": "Two liner about a hands-on test."},
     )
     assert probe.status_code == 200, probe.text
+    assert probe.json()["probe_date"] == date.today().isoformat()
     pid = probe.json()["id"]
+
+    edited = bare.patch(
+        f"/api/admin/probes/{pid}",
+        headers=admin,
+        json={"probe_date": "2024-03-12"},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["probe_date"] == "2024-03-12"
+
+    bad = bare.patch(
+        f"/api/admin/probes/{pid}",
+        headers=admin,
+        json={"probe_date": "March 12"},
+    )
+    assert bad.status_code == 400
 
     nu = bare.post(
         "/api/admin/not-useful",
@@ -131,4 +149,5 @@ def test_manual_probe_and_not_useful(client: TestClient):
     assert any(p["id"] == pid for p in ctx["probes"])
     assert any(n["text"] == "pure market gossip" for n in ctx["not_useful"])
     assert "Test probe" in ctx["prompt_preview"]
+    assert "Date: 2024-03-12" in ctx["prompt_preview"]
     assert "pure market gossip" in ctx["prompt_preview"]

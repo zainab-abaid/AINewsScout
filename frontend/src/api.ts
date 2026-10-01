@@ -17,6 +17,8 @@ export type ResearchItem = {
   source_url: string | null;
   source_kind: string;
   sort_order: number;
+  /** YYYY-MM-DD. Set on probes; artifacts leave it unset. */
+  probe_date?: string | null;
 };
 
 export type ResearchPriority = {
@@ -275,21 +277,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  patchProbe: (id: number, body: { title?: string; description?: string }) =>
+  patchProbe: (
+    id: number,
+    body: { title?: string; description?: string; probe_date?: string | null },
+  ) =>
     http<ResearchItem>(`/api/admin/probes/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
   deleteProbe: (id: number) =>
     http<{ ok: boolean }>(`/api/admin/probes/${id}`, { method: "DELETE" }),
-  ingestProbeUrl: (url: string) =>
+  ingestProbeUrl: (url: string, probeDate: string) =>
     http<{ title: string; description: string; source_url: string | null; source_kind: string }>(
       "/api/admin/probes/ingest-url",
-      { method: "POST", body: JSON.stringify({ url }) },
+      { method: "POST", body: JSON.stringify({ url, probe_date: probeDate }) },
     ),
-  ingestProbePdf: (file: File) => {
+  ingestProbeText: (text: string, probeDate: string) =>
+    http<{ title: string; description: string; source_url: string | null; source_kind: string }>(
+      "/api/admin/probes/ingest-text",
+      { method: "POST", body: JSON.stringify({ text, probe_date: probeDate }) },
+    ),
+  ingestProbePdf: (file: File, probeDate: string) => {
     const form = new FormData();
     form.append("file", file);
+    form.append("probe_date", probeDate);
     return httpForm<{
       title: string;
       description: string;

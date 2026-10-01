@@ -2761,9 +2761,8 @@ function AdminView({
   // Manual add forms
   const [priName, setPriName] = useState("");
   const [priDesc, setPriDesc] = useState("");
-  const [probeTitle, setProbeTitle] = useState("");
-  const [probeDesc, setProbeDesc] = useState("");
   const [probeUrl, setProbeUrl] = useState("");
+  const [probeText, setProbeText] = useState("");
   const [artTitle, setArtTitle] = useState("");
   const [artDesc, setArtDesc] = useState("");
   const [artUrl, setArtUrl] = useState("");
@@ -2834,7 +2833,10 @@ function AdminView({
   }
 
   const ingestTip =
-    "Optional test feature: paste a blog/GitHub URL (or upload a PDF for probes) and the LLM drafts a title plus a 2–3 sentence description from the page text. Images and video are not supported. You can always type title and description manually instead.";
+    "Paste a blog or docs URL and the LLM drafts a title plus a 2–3 sentence description from the page text. Images and video are not supported. You can also type the title and description yourself.";
+
+  const probeAddTip =
+    "Paste a URL (a docs page or a blog — only the text is pulled from the page), paste a text description, or upload a PDF. An LLM reads that input and writes the probe topic and a short description saved here. The date is set to today; you can edit it on the probe afterwards.";
 
   return (
     <div className="admin-view">
@@ -2972,18 +2974,35 @@ function AdminView({
         setOpenId={setOpenPanel}
       >
         <p className="admin-panel-lead">
-          Short descriptions of past hands-on investigations.{" "}
-          <InfoTip text={ingestTip} />
+          Short descriptions of past hands-on investigations. Set the date on probes
+          that were added before dates were recorded.
         </p>
         <ul className="admin-item-list">
           {ctx.probes.map((p: ResearchItem) => (
             <li key={p.id}>
               <details>
                 <summary>
-                  {p.title}
+                  <span className="probe-summary-title">{p.title}</span>
                   {p.source_kind !== "manual" ? (
                     <span className="admin-source-tag">{p.source_kind}</span>
                   ) : null}
+                  <input
+                    className="probe-date-input"
+                    type="date"
+                    key={`${p.id}-${p.probe_date ?? ""}`}
+                    defaultValue={p.probe_date ?? ""}
+                    aria-label={`Date for ${p.title}`}
+                    disabled={busy}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      run(
+                        () => api.patchProbe(p.id, { probe_date: next || null }),
+                        next ? "Probe date saved." : "Probe date cleared.",
+                      );
+                    }}
+                  />
                 </summary>
                 <textarea
                   rows={4}
@@ -3016,38 +3035,30 @@ function AdminView({
             </li>
           ))}
         </ul>
-        <form
-          className="admin-add-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!probeTitle.trim()) return;
-            run(async () => {
-              await api.createProbe({ title: probeTitle, description: probeDesc });
-              setProbeTitle("");
-              setProbeDesc("");
-            }, "Probe added manually.");
-          }}
-        >
-          <p className="field-label">Add manually</p>
-          <input
-            value={probeTitle}
-            onChange={(e) => setProbeTitle(e.target.value)}
-            placeholder="Title"
-          />
-          <textarea
-            rows={2}
-            value={probeDesc}
-            onChange={(e) => setProbeDesc(e.target.value)}
-            placeholder="2–3 sentence description"
-          />
-          <button type="submit" className="btn-primary" disabled={busy || !probeTitle.trim()}>
-            Add probe
-          </button>
-        </form>
         <div className="admin-ingest">
           <p className="field-label">
-            Or draft from a PDF / URL <InfoTip text={ingestTip} />
+            Add probe <InfoTip text={probeAddTip} />
           </p>
+          <textarea
+            rows={4}
+            value={probeText}
+            onChange={(e) => setProbeText(e.target.value)}
+            placeholder="Paste a text description of the probe"
+            aria-label="Probe description text"
+          />
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy || probeText.trim().length < 40}
+            onClick={() =>
+              run(async () => {
+                await api.ingestProbeText(probeText.trim(), todayISO());
+                setProbeText("");
+              }, "Probe drafted from the pasted text and saved. Review it in the list.")
+            }
+          >
+            Analyse text
+          </button>
           <div className="admin-ingest-row">
             <input
               value={probeUrl}
@@ -3061,7 +3072,7 @@ function AdminView({
               disabled={busy || !probeUrl.trim()}
               onClick={() =>
                 run(async () => {
-                  await api.ingestProbeUrl(probeUrl.trim());
+                  await api.ingestProbeUrl(probeUrl.trim(), todayISO());
                   setProbeUrl("");
                 }, "Probe drafted from URL and saved. Review the text in the list.")
               }
@@ -3080,7 +3091,7 @@ function AdminView({
                 e.target.value = "";
                 if (!file) return;
                 run(
-                  () => api.ingestProbePdf(file),
+                  () => api.ingestProbePdf(file, todayISO()),
                   "Probe drafted from PDF and saved. Review the text in the list.",
                 );
               }}

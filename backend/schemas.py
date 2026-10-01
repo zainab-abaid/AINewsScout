@@ -155,6 +155,8 @@ class ResearchItemOut(BaseModel):
     source_url: Optional[str] = None
     source_kind: str = "manual"
     sort_order: int = 0
+    # Probes only. Artifacts leave this unset.
+    probe_date: Optional[str] = None
 
 
 class ResearchItemIn(BaseModel):
@@ -165,6 +167,7 @@ class ResearchItemIn(BaseModel):
 class ResearchItemPatch(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    probe_date: Optional[str] = None
 
 
 class ResearchPriorityOut(BaseModel):
@@ -206,6 +209,12 @@ class ResearchContextOut(BaseModel):
 
 class UrlIngestIn(BaseModel):
     url: str
+    probe_date: Optional[str] = None
+
+
+class TextIngestIn(BaseModel):
+    text: str
+    probe_date: Optional[str] = None
 
 
 class IngestPreviewOut(BaseModel):

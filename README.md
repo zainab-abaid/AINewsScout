@@ -151,7 +151,7 @@ Extractor / search skills live in `skills/` (`02` single-email extractor, `03` i
 
 ### Admin
 
-Collapsible panels for priorities, past probes (manual / PDF / URL), artifacts (manual / URL), not-useful list, categories, live prompt preview, and LLM call logs. Changes apply to **new** newsletters only.
+Collapsible panels for priorities, past probes (URL, pasted text, or PDF — an LLM writes the title and short description; each probe has an editable date), artifacts (manual / URL), not-useful list, categories, live prompt preview, and LLM call logs. Changes apply to **new** newsletters only.
 
 ## Layout
 

@@ -1,7 +1,6 @@
-"""Optional LLM assist: turn a PDF or web page into a short probe/artifact blurb.
+"""LLM assist: turn a PDF, web page, or pasted description into a short probe blurb.
 
-Test feature — text only (no images/video). Admin can always enter title and
-description manually instead.
+Text only (no images or video). The model writes the stored title and description.
 """
 
 from __future__ import annotations

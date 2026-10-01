@@ -126,7 +126,10 @@ class ResearchProbe(SQLModel, table=True):
     title: str
     description: str = ""
     source_url: Optional[str] = None
-    source_kind: str = "manual"  # manual | pdf | url
+    source_kind: str = "manual"  # manual | pdf | url | text
+    # Calendar day the probe was added, YYYY-MM-DD. Empty for probes seeded
+    # before this field existed; the admin fills those in the UI.
+    probe_date: Optional[str] = None
     sort_order: int = 0
     created_at: datetime = Field(default_factory=utcnow)
 
