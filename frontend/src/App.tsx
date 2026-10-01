@@ -228,6 +228,56 @@ function NewCategoryForm({
   );
 }
 
+function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <div
+        className="email-backdrop"
+        onClick={() => {
+          if (!busy) onCancel();
+        }}
+      />
+      <div className="comment-modal confirm-dialog" role="dialog" aria-modal="true">
+        <h2>{title}</h2>
+        <p className="meta">{body}</p>
+        <div className="comment-form-actions">
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onConfirm();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Working…" : confirmLabel}
+          </button>
+          <button type="button" className="btn-quiet" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function CommentBox({
   value,
   onSave,
@@ -515,6 +565,7 @@ export default function App() {
     id: number;
     prompt: "important" | "probe";
   } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Candidate | null>(null);
   const [email, setEmail] = useState<EmailDetail | null>(null);
   const [emailExcerpt, setEmailExcerpt] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
@@ -1118,6 +1169,7 @@ export default function App() {
                     onAddCategory={addCategory}
                     onOpenEmail={openEmail}
                     onComment={(id, prompt) => setCommentFor({ id, prompt })}
+                    onRequestDelete={setPendingDelete}
                     canEdit={canEdit}
                     canAdmin={canAdmin}
                   />
@@ -1165,6 +1217,7 @@ export default function App() {
                   onAddCategory={addCategory}
                   onOpenEmail={openEmail}
                   onComment={(id, prompt) => setCommentFor({ id, prompt })}
+                  onRequestDelete={setPendingDelete}
                   canEdit={canEdit}
                   canAdmin={canAdmin}
                 />
@@ -1188,6 +1241,18 @@ export default function App() {
             else if (await patch(commentCandidate.id, { notes: text })) setCommentFor(null);
           }}
           onClose={() => setCommentFor(null)}
+        />
+      )}
+
+      {pendingDelete && canEdit && (
+        <ConfirmDialog
+          title="Delete this item?"
+          body={`“${pendingDelete.topic}” will be removed. This cannot be undone.`}
+          confirmLabel="Delete"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            if (await patch(pendingDelete.id, { deleted: true })) setPendingDelete(null);
+          }}
         />
       )}
 
@@ -1462,6 +1527,7 @@ function CandidateCard({
   onAddCategory,
   onOpenEmail,
   onComment,
+  onRequestDelete,
   canEdit = true,
   canAdmin = false,
 }: {
@@ -1471,6 +1537,7 @@ function CandidateCard({
   onAddCategory: (name: string) => Promise<Category>;
   onOpenEmail: (id: number, excerpt: string) => void;
   onComment: (id: number, prompt: "important" | "probe") => void;
+  onRequestDelete: (c: Candidate) => void;
   canEdit?: boolean;
   canAdmin?: boolean;
 }) {
@@ -1524,11 +1591,7 @@ function CandidateCard({
               <button
                 type="button"
                 className="btn-delete"
-                onClick={() => {
-                  if (window.confirm("Delete this item? This cannot be undone.")) {
-                    onPatch(c.id, { deleted: true });
-                  }
-                }}
+                onClick={() => onRequestDelete(c)}
               >
                 Delete
               </button>
@@ -2695,6 +2758,8 @@ function AdminView({
   const [artDesc, setArtDesc] = useState("");
   const [artUrl, setArtUrl] = useState("");
   const [nuText, setNuText] = useState("");
+  const [openPriorityId, setOpenPriorityId] = useState<number | null>(null);
+  const [confirmPriority, setConfirmPriority] = useState<ResearchPriority | null>(null);
 
   const reload = useCallback(async () => {
     const next = await api.researchContext();
@@ -2779,47 +2844,59 @@ function AdminView({
           Priority when they also have a hands-on path.
         </p>
         <ul className="admin-item-list">
-          {ctx.priority_areas.map((p: ResearchPriority) => (
-            <li key={p.id} className="admin-priority-item">
-              <button
-                type="button"
-                className="btn-quiet admin-priority-remove"
-                disabled={busy}
-                aria-label={`Remove ${p.name}`}
-                onClick={() =>
-                  run(() => api.deletePriority(p.id), "Priority removed from future prompts.")
-                }
-              >
-                Remove
-              </button>
-              <details>
-                <summary>{p.name}</summary>
-                <textarea
-                  rows={4}
-                  defaultValue={p.description}
-                  aria-label={`${p.name} description`}
-                  onBlur={(e) => {
-                    if (e.target.value === p.description) return;
-                    run(
-                      () => api.patchPriority(p.id, { description: e.target.value }),
-                      "Priority updated.",
-                    );
-                  }}
-                />
-                <input
-                  defaultValue={p.name}
-                  aria-label={`${p.name} title`}
-                  onBlur={(e) => {
-                    if (e.target.value.trim() === p.name) return;
-                    run(
-                      () => api.patchPriority(p.id, { name: e.target.value }),
-                      "Priority renamed.",
-                    );
-                  }}
-                />
-              </details>
-            </li>
-          ))}
+          {ctx.priority_areas.map((p: ResearchPriority) => {
+            const open = openPriorityId === p.id;
+            return (
+              <li key={p.id} className="admin-priority-item">
+                <button
+                  type="button"
+                  className="admin-priority-edit"
+                  aria-expanded={open}
+                  onClick={() => setOpenPriorityId(open ? null : p.id)}
+                >
+                  {open ? "Close" : "Edit"}
+                </button>
+                <div className="admin-priority-body">
+                  <p className="admin-priority-name">{p.name}</p>
+                  {open && (
+                    <>
+                      <textarea
+                        rows={4}
+                        defaultValue={p.description}
+                        aria-label={`${p.name} description`}
+                        onBlur={(e) => {
+                          if (e.target.value === p.description) return;
+                          run(
+                            () => api.patchPriority(p.id, { description: e.target.value }),
+                            "Priority updated.",
+                          );
+                        }}
+                      />
+                      <input
+                        defaultValue={p.name}
+                        aria-label={`${p.name} title`}
+                        onBlur={(e) => {
+                          if (e.target.value.trim() === p.name) return;
+                          run(
+                            () => api.patchPriority(p.id, { name: e.target.value }),
+                            "Priority renamed.",
+                          );
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-quiet"
+                        disabled={busy}
+                        onClick={() => setConfirmPriority(p)}
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
         <form
           className="admin-add-form"
@@ -3284,6 +3361,23 @@ function AdminView({
             </button>
           </div>
         </>
+      )}
+      {confirmPriority && (
+        <ConfirmDialog
+          title="Remove this research area?"
+          body={`“${confirmPriority.name}” will be left out of future prompts. Existing newsletter marks stay as they are.`}
+          confirmLabel="Remove"
+          onCancel={() => setConfirmPriority(null)}
+          onConfirm={async () => {
+            const id = confirmPriority.id;
+            await run(
+              () => api.deletePriority(id),
+              "Priority removed from future prompts.",
+            );
+            setConfirmPriority(null);
+            setOpenPriorityId((current) => (current === id ? null : current));
+          }}
+        />
       )}
     </div>
   );

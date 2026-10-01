@@ -788,22 +788,40 @@ button.linkish {
 .admin-priority-item {
   display: flex;
   align-items: flex-start;
-  gap: .15rem;
+  gap: .5rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: .15rem .35rem .15rem .2rem;
+  padding: .35rem .55rem .4rem;
   background: #faf8f4;
 }
-.admin-priority-item details {
-  flex: 1 1 auto;
-  border: 0;
-  background: transparent;
-  padding: .3rem .3rem .35rem;
-}
-.admin-priority-remove {
+.admin-priority-edit {
   flex: 0 0 auto;
-  margin-top: .28rem;
-  white-space: nowrap;
+  margin-top: .15rem;
+  font: inherit;
+  font-size: .82rem;
+  cursor: pointer;
+  padding: .25rem .7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--ink);
+}
+.admin-priority-body { flex: 1 1 auto; min-width: 0; }
+.admin-priority-name {
+  margin: .28rem 0 0;
+  font-weight: 650;
+  font-size: .92rem;
+}
+.confirm-dialog .comment-form-actions { margin-top: .85rem; }
+.confirm-dialog .comment-form-actions .btn-primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+  font-weight: 650;
+}
+.confirm-dialog .comment-form-actions .btn-primary:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
 .admin-item-list textarea,
 .admin-item-list input,
