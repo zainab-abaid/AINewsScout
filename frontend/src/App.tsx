@@ -2769,6 +2769,8 @@ function AdminView({
   const [artUrl, setArtUrl] = useState("");
   const [nuText, setNuText] = useState("");
   const [openPriorityId, setOpenPriorityId] = useState<number | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [draftDesc, setDraftDesc] = useState("");
   const [confirmPriority, setConfirmPriority] = useState<ResearchPriority | null>(null);
 
   const reload = useCallback(async () => {
@@ -2788,7 +2790,7 @@ function AdminView({
       .catch((e: Error) => setError(e.message));
   }, [openPanel, logKind, setError]);
 
-  async function run(action: () => Promise<unknown>, okMsg: string) {
+  async function run(action: () => Promise<unknown>, okMsg: string): Promise<boolean> {
     setBusy(true);
     setNote("");
     try {
@@ -2796,8 +2798,10 @@ function AdminView({
       await reload();
       setNote(okMsg);
       setError("");
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -2858,52 +2862,73 @@ function AdminView({
             const open = openPriorityId === p.id;
             return (
               <li key={p.id} className="admin-priority-item">
-                <button
-                  type="button"
-                  className="admin-priority-edit"
-                  aria-expanded={open}
-                  onClick={() => setOpenPriorityId(open ? null : p.id)}
-                >
-                  {open ? "Close" : "Edit"}
-                </button>
-                <div className="admin-priority-body">
+                <div className="admin-priority-head">
                   <p className="admin-priority-name">{p.name}</p>
-                  {open && (
-                    <>
+                  {!open && (
+                    <button
+                      type="button"
+                      className="admin-priority-edit"
+                      onClick={() => {
+                        setOpenPriorityId(p.id);
+                        setDraftName(p.name);
+                        setDraftDesc(p.description);
+                      }}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+                {open && (
+                  <div className="admin-priority-editor">
+                    <label className="sign-in-label">
+                      Name
+                      <input
+                        value={draftName}
+                        aria-label={`${p.name} title`}
+                        onChange={(e) => setDraftName(e.target.value)}
+                      />
+                    </label>
+                    <label className="sign-in-label">
+                      Description
                       <textarea
                         rows={4}
-                        defaultValue={p.description}
+                        value={draftDesc}
                         aria-label={`${p.name} description`}
-                        onBlur={(e) => {
-                          if (e.target.value === p.description) return;
-                          run(
-                            () => api.patchPriority(p.id, { description: e.target.value }),
-                            "Priority updated.",
-                          );
-                        }}
+                        onChange={(e) => setDraftDesc(e.target.value)}
                       />
-                      <input
-                        defaultValue={p.name}
-                        aria-label={`${p.name} title`}
-                        onBlur={(e) => {
-                          if (e.target.value.trim() === p.name) return;
-                          run(
-                            () => api.patchPriority(p.id, { name: e.target.value }),
-                            "Priority renamed.",
-                          );
-                        }}
-                      />
+                    </label>
+                    <div className="admin-priority-actions">
                       <button
                         type="button"
-                        className="btn-quiet"
+                        className="btn-primary"
+                        disabled={busy || !draftName.trim()}
+                        onClick={() => {
+                          const name = draftName.trim();
+                          run(
+                            () =>
+                              api.patchPriority(p.id, {
+                                name,
+                                description: draftDesc,
+                              }),
+                            "Priority updated.",
+                          ).then((ok) => {
+                            if (ok) setOpenPriorityId(null);
+                          });
+                        }}
+                      >
+                        Save edits
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-delete"
                         disabled={busy}
                         onClick={() => setConfirmPriority(p)}
                       >
-                        Remove
+                        Delete area
                       </button>
-                    </>
-                  )}
-                </div>
+                    </div>
+                  </div>
+                )}
               </li>
             );
           })}
@@ -3374,9 +3399,9 @@ function AdminView({
       )}
       {confirmPriority && (
         <ConfirmDialog
-          title="Remove this research area?"
+          title="Delete this research area?"
           body={`“${confirmPriority.name}” will be left out of future prompts. Existing newsletter marks stay as they are.`}
-          confirmLabel="Remove"
+          confirmLabel="Delete area"
           onCancel={() => setConfirmPriority(null)}
           onConfirm={async () => {
             const id = confirmPriority.id;

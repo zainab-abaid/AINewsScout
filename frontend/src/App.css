@@ -786,31 +786,43 @@ button.linkish {
 }
 .admin-item-list details[open] summary { margin-bottom: .55rem; }
 .admin-priority-item {
-  display: flex;
-  align-items: flex-start;
-  gap: .5rem;
+  display: grid;
+  gap: .55rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: .35rem .55rem .4rem;
+  padding: .55rem .7rem;
   background: #faf8f4;
+}
+.admin-priority-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
 }
 .admin-priority-edit {
   flex: 0 0 auto;
-  margin-top: .15rem;
   font: inherit;
   font-size: .82rem;
+  font-weight: 650;
   cursor: pointer;
-  padding: .25rem .7rem;
+  padding: .3rem .75rem;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ink);
   background: var(--card);
   color: var(--ink);
 }
-.admin-priority-body { flex: 1 1 auto; min-width: 0; }
 .admin-priority-name {
-  margin: .28rem 0 0;
+  margin: 0;
   font-weight: 650;
   font-size: .92rem;
+}
+.admin-priority-editor { display: grid; gap: .35rem; }
+.admin-priority-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+  margin-top: .25rem;
 }
 .confirm-dialog .comment-form-actions { margin-top: .85rem; }
 .confirm-dialog .comment-form-actions .btn-primary {
