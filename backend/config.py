@@ -37,7 +37,7 @@ IMAP_PORT = int(os.getenv("IMAP_PORT", "993") or "993")
 IMAP_USER = os.getenv("IMAP_USER", "").strip()
 IMAP_PASSWORD = os.getenv("IMAP_PASSWORD", "").replace(" ", "").strip()
 IMAP_FOLDER = os.getenv("IMAP_FOLDER", "INBOX").strip() or "INBOX"
-# Comma-separated From addresses to accept (case-insensitive substring match).
+# Comma-separated addresses. Matched against From and Gmail forward headers.
 IMAP_ALLOWED_FROM = [
     part.strip().lower()
     for part in os.getenv("IMAP_ALLOWED_FROM", "zainab.abaid@emumba.com").split(",")
@@ -49,7 +49,7 @@ IMAP_SYNC_ENABLED = os.getenv("IMAP_SYNC_ENABLED", "1").strip().lower() not in {
     "no",
     "off",
 }
-# Local hour (0-23) when the daily IMAP pull runs while the API is up.
+# Hour 0-23 on the API process clock (UTC on Railway) for the daily IMAP pull.
 IMAP_SYNC_HOUR = max(0, min(23, int(os.getenv("IMAP_SYNC_HOUR", "6") or "6")))
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1").strip() or "127.0.0.1"

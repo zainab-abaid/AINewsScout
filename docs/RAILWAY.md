@@ -81,9 +81,9 @@ Copy the same secrets you use locally. At minimum:
 | `IMAP_USER` | Dedicated inbox address |
 | `IMAP_PASSWORD` | App password (no spaces) |
 | `IMAP_FOLDER` | `INBOX` |
-| `IMAP_ALLOWED_FROM` | Your forwarder address |
+| `IMAP_ALLOWED_FROM` | Address that must appear in From or the forward headers. Production uses the forwarder address, not the newsletter’s original From. |
 | `IMAP_SYNC_ENABLED` | `1` |
-| `IMAP_SYNC_HOUR` | Hour **in the server timezone (UTC on Railway)** e.g. `20` ≈ 6am AEST |
+| `IMAP_SYNC_HOUR` | Hour on the container clock, which is UTC. Production uses `6` (06:00 UTC, 16:00 AEST). |
 | `VIEWER_TOKEN` | Required so the public URL cannot be scraped |
 | `ANALYST_TOKEN` | Analyst unlock |
 | `ADMIN_TOKEN` | Admin unlock |
@@ -158,6 +158,20 @@ Keep **replicas = 1**. SQLite is not safe with multiple writers.
 - Do not rely on a secret URL without `VIEWER_TOKEN`.
 
 ---
+
+## Current production
+
+| | |
+| --- | --- |
+| URL | https://ainewsscout-production.up.railway.app |
+| Project | `chic-serenity` |
+| Service | `AINewsScout` |
+| Volume mount | `/app/data` (one volume only) |
+| Database file | `/app/data/probe_scout.sqlite` |
+
+Pushing `main` deploys. Drafted variables do nothing until you click **Apply changes**. A Redeploy alone uses the last applied set.
+
+`railway volume files` needs an SSH key registered with `railway ssh keys add`. Put `--volume` on `railway volume files`, not on the `upload` subcommand. Do not attach a second volume to this service.
 
 ## Updating the app later
 

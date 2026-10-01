@@ -1,169 +1,133 @@
 # AINews Scout
 
-Local web app that pulls **AI News newsletters from a dedicated inbox**, extracts **Genie probe candidates** with OpenAI, and lets you review, categorise, and mark them on your machine.
+Web app that pulls **AI News newsletters from a dedicated inbox**, extracts **Genie probe candidates** with OpenAI, and lets people review, categorise, mark, and search them.
 
-Each person clones the repo and runs it locally. Emails, probe ideas, and your marks live in a local SQLite database. Nothing is hosted and nothing is shared between users.
+The shared production app is [https://ainewsscout-production.up.railway.app](https://ainewsscout-production.up.railway.app). You can also run the same code locally. Emails, marks, and research context live in one SQLite file. That file is not in Git.
+
+New to the codebase? Read [onboarding_docs/feature_development_guide_for_onboarding_developers.md](onboarding_docs/feature_development_guide_for_onboarding_developers.md) before changing features. Deploy details are in [docs/RAILWAY.md](docs/RAILWAY.md).
 
 ## What is stored where
 
 | Data | Location |
 | --- | --- |
-| Emails, probe candidates, your marks, categories, job progress | `data/probe_scout.sqlite` (created on first run, gitignored) |
-| Research context (probes, artifacts, priorities, not-useful) + LLM call logs | SQLite tables (seeded once from `backend/seed/research_context_seed.json`) |
-| OpenAI key, IMAP inbox credentials, role tokens | `.env` (gitignored) |
+| Emails, probe candidates, marks, categories, searches, jobs | `data/probe_scout.sqlite` locally. On Railway, the same filename on a volume mounted at `/app/data`. Gitignored. |
+| Research context (probes, artifacts, priorities, not-useful) and LLM call logs | Tables in that same database. Empty databases are seeded once from `backend/seed/research_context_seed.json`. |
+| OpenAI key, IMAP credentials, role tokens | `.env` locally. Railway Variables in production. Never commit them. |
 
-Nothing in `data/` or `.env` is ever committed. Historic emails already in the database stay there permanently — sync only adds new messages.
+Sync only adds new messages. Stored newsletters are not deleted.
 
-### Research context (database)
+Admin edits to research context or categories apply to **new extractions only**. They do not re-analyse mail already in the database and they do not wipe marks or comments. Deprecated categories stay on old candidates.
 
-Past probes, related artifacts, higher-priority research areas, and the not-useful list live in SQLite. The extractor prompt is composed from those rows on every run. Seed content ships in `backend/seed/research_context_seed.json` for empty databases. Extractor rules remain in `skills/02_…` and `skills/03_…`.
-
-**Admin changes never re-analyse old newsletters** and never wipe marks or comments. New categories and deprecated categories apply to **new extractions only**; old candidates keep their existing category.
-
-### Roles
+## Roles
 
 | Role | Token | Can do |
 | --- | --- | --- |
-| Locked | none / wrong token | No content — access gate only |
+| Locked | none / wrong token | Access gate only |
 | Viewer | `VIEWER_TOKEN` | Browse candidates, marked items, and AI search |
-| Analyst | `ANALYST_TOKEN` | Mark / comment / categorise (existing categories), sync, extract, keep search hits |
-| Admin | `ADMIN_TOKEN` | Everything analyst can, plus Admin tab (research context + add/deprecate categories) |
+| Analyst | `ANALYST_TOKEN` | Mark, comment, categorise with existing categories, sync, extract, keep search hits |
+| Admin | `ADMIN_TOKEN` | Everything an analyst can do, plus the Admin tab |
 
-When `VIEWER_TOKEN` is set, the UI stays locked until a valid token is entered. Analyst/admin tokens also unlock the app. Use **Switch role** in the header to change. For local-only convenience you may leave `VIEWER_TOKEN` empty (open viewer); set it before hosting.
+When `VIEWER_TOKEN` is set, the UI stays locked until a valid token is entered. Analyst and admin tokens unlock the app as well. Use **Switch role** in the header to change. For a local-only checkout you may leave `VIEWER_TOKEN` empty, which makes anonymous requests a viewer. Production must set it.
 
-### Env vs config, and hosting
-
-Use **environment variables** (via `.env` locally, or the host’s secret store in production) — not a committed config file — for `OPENAI_API_KEY`, IMAP credentials, and role tokens. `.env` is gitignored so tokens are not pushed to GitHub.
-
-On a host (Railway, Fly, Render, a VM, etc.):
-
-- Set the same variables in the platform’s **secrets / environment** UI; do not bake them into the image or repo.
-- Restrict who can read the host dashboard; rotate tokens if someone leaves.
-- Prefer HTTPS and keep the API off the public internet if only a small team needs write access (or put it behind your org VPN / SSO later).
-- A `.env` file on a server is only as safe as filesystem permissions and who can SSH in — platform secrets are usually better once you host.
-
-Generate tokens with:
+Generate a token with:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Put them in `.env` as `VIEWER_TOKEN`, `ANALYST_TOKEN`, and `ADMIN_TOKEN` (see `.env.example`).
-
 ## Prerequisites
 
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/)
 - Node 20+
-- An OpenAI API key in `.env`
-- A dedicated free inbox (for example a second Gmail) with IMAP enabled and an **app password**
-- Your main mailbox forwarding AINews newsletters into that dedicated inbox
+- An OpenAI API key
+- The dedicated Gmail inbox (`IMAP_USER`) with IMAP and an app password
+- Forwards of AINews into that inbox. The allow-list address is `IMAP_ALLOWED_FROM`
 
 ## Setup
-
-### 1. Forward newsletters into the dedicated inbox
-
-On your **main** Gmail (or wherever the newsletters arrive):
-
-1. Create or keep a filter/label for AINews (for example From `swyx+ainews@substack.com` → label `AINews`).
-2. Add the dedicated inbox address as a forwarding address and verify it.
-3. Add a filter action: for that label (or sender), **Forward to** the dedicated inbox.
-
-Manual forwards also work for testing: forward a newsletter so the dedicated inbox shows **From:** you (the address listed in `IMAP_ALLOWED_FROM`).
-
-### 2. Create an app password on the dedicated inbox
-
-For a dedicated Gmail:
-
-1. Enable [2-Step Verification](https://myaccount.google.com/security).
-2. Create an [App password](https://myaccount.google.com/apppasswords) named e.g. `AINewsScout`.
-3. Put the address and app password in `.env` (see below).
-
-### 3. Install and run
 
 ```bash
 git clone https://github.com/zainab-abaid/AINewsScout.git
 cd AINewsScout
 
 cp .env.example .env
-# Fill in OPENAI_API_KEY, IMAP_USER, IMAP_PASSWORD, IMAP_ALLOWED_FROM
+# Fill in OPENAI_API_KEY, IMAP_USER, IMAP_PASSWORD, IMAP_ALLOWED_FROM, and the three tokens
 
 ./run_dev.sh
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on `127.0.0.1:8000` only.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on port 8000. Vite proxies `/api` to it.
 
-### 4. Inbox env vars
+How the inbox is filtered, and how the live Railway service is configured, is in [onboarding_docs/inbox_auth_and_railway.md](onboarding_docs/inbox_auth_and_railway.md).
+
+### Inbox env vars
 
 | Variable | Purpose |
 | --- | --- |
 | `IMAP_HOST` | Default `imap.gmail.com` |
 | `IMAP_PORT` | Default `993` |
 | `IMAP_USER` | Dedicated inbox address |
-| `IMAP_PASSWORD` | App password (not your normal login password) |
+| `IMAP_PASSWORD` | App password, not the normal Gmail password |
 | `IMAP_FOLDER` | Default `INBOX` |
-| `IMAP_ALLOWED_FROM` | Comma-separated From filters (only these messages are ingested) |
-| `IMAP_SYNC_ENABLED` | `1` to enable auto pull (default) |
-| `IMAP_SYNC_HOUR` | Local hour `0–23` for the daily pull while the API is running (default `6`) |
-| `VIEWER_TOKEN` | Shared secret required to open the app (browse only) |
-| `ANALYST_TOKEN` | Shared secret for analyst sign-in (marks, sync, extract) |
-| `ADMIN_TOKEN` | Shared secret for admin sign-in (research context + taxonomy) |
+| `IMAP_ALLOWED_FROM` | Comma-separated addresses. A message matches if one appears in From, To, Cc, or the forward headers. Gmail auto-forward keeps the newsletter’s original From. |
+| `IMAP_SYNC_ENABLED` | `1` to enable the pull (default) |
+| `IMAP_SYNC_HOUR` | Hour `0–23` on the API process clock. Railway is UTC. `6` is 06:00 UTC (16:00 AEST). |
+| `VIEWER_TOKEN` | Required to open a hosted app |
+| `ANALYST_TOKEN` | Marks, sync, extract |
+| `ADMIN_TOKEN` | Research context and categories |
 
-Optional smoke test (does not need the UI):
+Optional IMAP check:
 
 ```bash
 uv run python -m backend.tools.test_imap_pull          # dry run
-uv run python -m backend.tools.test_imap_pull --store  # write new matches to the DB
+uv run python -m backend.tools.test_imap_pull --store  # write new matches
 ```
 
-### Sync behaviour
+While the API is running it pulls once on startup and again every day at `IMAP_SYNC_HOUR`. **Sync inbox now** pulls immediately and then extracts new or pending emails. AI search does not pull the inbox.
 
-- While the API is running, the app **pulls once on startup** and again **daily** at `IMAP_SYNC_HOUR`.
-- **Sync inbox now** in the UI pulls immediately, then extracts probe ideas from new / pending emails.
-- Only messages whose From matches `IMAP_ALLOWED_FROM` are stored. Everything already in the DB is left alone (including older issues synced under the previous mechanism).
-- Emails are permanent. Nothing in the app deletes a stored newsletter.
+## Application
 
-## Application features
-
-The UI has four tabs when signed in as admin: **Important items extracted from emails**, **Review marked items**, **AI search**, and **Admin**. Viewers and analysts see the first three.
+Signed-in admins see four tabs. Viewers and analysts see the first three.
 
 ### Important items extracted from emails
 
-- Filters for model ranking and your marks; category toggles; **Show unprocessed items only**.
-- Mark Important / Shortlist with optional comments; add categories on any card.
-- Excerpts keep newsletter links; the email title opens the full Markdown body and scrolls to the passage.
+Filters for model ranking and marks, category toggles, and unprocessed items. Analysts mark Important or Shortlist. The first time either is turned on, an in-app comment box opens. Excerpts keep newsletter links. The email title opens the full Markdown body.
 
 ### Review marked items
 
-Everything you marked important or shortlisted, with editable comments and category changes.
+Important and shortlisted items, with comments and categories. The filter bar stays put while you scroll.
 
-### Search for ideas
+### AI search
 
-Ask your own question across whole newsletters already in the database (historic and new):
+Ask a question across newsletters **already in the database**. The default range is the last two weeks, clamped to stored issues. Dates in the future or outside the stored span are rejected. Findings can be added to marked items. Past searches can be reopened. Deleting a running search cancels it.
 
-> List all the studies and papers mentioned in the emails that conclude that harnesses affect how well models perform on tasks in different benchmarks.
-
-- Searches the **local database** for the date range. Historic emails stay searchable forever.
-- If the inbox is configured, the search job also does a quick inbox pull first so brand-new forwards are included, then reads every email in the range in batches.
-- Findings can be **Add to marked items** as probe candidates.
-- Past searches are reopenable; deleting a running search cancels it.
-
-Extractor / search skills live in `skills/` (`02` single-email extractor, `03` idea search). Research context is database-backed.
+This search does not contact Gmail. New mail shows up here only after a sync has stored it.
 
 ### Admin
 
-Collapsible panels for priorities, past probes (URL, pasted text, or PDF — an LLM writes the title and short description; each probe has an editable date), artifacts (manual / URL), not-useful list, categories, live prompt preview, and LLM call logs. Changes apply to **new** newsletters only.
+Priorities, past probes, related artifacts, the not-useful list, categories, a live prompt preview, and LLM call logs.
+
+A new probe is added from pasted text, a URL, or a PDF — one of those, then Submit. An LLM writes the title and short description. Each probe has an editable date. Probes are listed newest date first. Older probes with no date stay at the bottom until someone fills the date in.
+
+## Tests
+
+```bash
+uv run pytest
+cd frontend && npm test && ./node_modules/.bin/tsc -b
+```
 
 ## Layout
 
 ```
-backend/         FastAPI app, IMAP sync, extraction and search jobs, SQLite models
-backend/tools/   maintenance commands (IMAP pull smoke test)
-frontend/        Vite + React review UI
-skills/          prompts
-tests/           backend tests
-data/            local DB, created at runtime (gitignored)
+backend/           FastAPI app, IMAP sync, extraction, search, SQLite models
+backend/tools/     IMAP pull smoke test
+frontend/          Vite + React UI
+skills/            Extractor and AI-search prompts
+tests/             Backend tests (temporary database)
+onboarding_docs/   Guide for someone changing the app
+docs/RAILWAY.md    Host setup
+data/              Local SQLite file, created at runtime, gitignored
 ```
 
-## Hosting on Railway
+## Hosting
 
-See [docs/RAILWAY.md](docs/RAILWAY.md) for Dockerfile-based deploy, volume setup, env vars, and uploading your local SQLite database.
+Production deploys from `main`. The database stays on the Railway volume across deploys. See [docs/RAILWAY.md](docs/RAILWAY.md).
