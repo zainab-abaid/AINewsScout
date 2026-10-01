@@ -1,4 +1,4 @@
-# Repository and scripts
+# Folder layout and commands
 
 GitHub: [zainab-abaid/AINewsScout](https://github.com/zainab-abaid/AINewsScout). The working branch is `main`.
 
@@ -25,8 +25,7 @@ frontend/                Vite + React. UI is mostly src/App.tsx
 skills/                  LLM instructions. Editing these changes model behaviour
 tests/                   pytest. Uses a temporary SQLite file, never data/probe_scout.sqlite
 frontend/tests/          vitest
-docs/RAILWAY.md          Host setup
-onboarding_docs/         This guide
+onboarding_docs/         Guides for a new developer, including a from-scratch Railway deploy
 run_dev.sh               Local API + Vite
 Dockerfile               Production image
 railway.toml             Health check and single-writer deploy settings

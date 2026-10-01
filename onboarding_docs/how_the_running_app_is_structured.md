@@ -1,4 +1,4 @@
-# Architecture
+# How the running app is structured
 
 ## What the running system is
 

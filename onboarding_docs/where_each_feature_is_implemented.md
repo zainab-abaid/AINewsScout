@@ -1,4 +1,4 @@
-# Features and where they live
+# Where each feature is implemented
 
 The header tabs are declared at `TABS` in `frontend/src/App.tsx`. Admin is hidden unless the role is admin.
 

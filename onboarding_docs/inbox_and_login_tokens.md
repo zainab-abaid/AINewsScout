@@ -1,4 +1,4 @@
-# Inbox, tokens, and Railway
+# Inbox and login tokens
 
 Nothing in this file is a password or a role token. Those values are in local `.env` and in the Railway service variables. Do not copy them into Git.
 
@@ -78,7 +78,7 @@ Railway keeps a drafted variable set until you click **Apply changes**. A plain 
 
 The CLI needs an SSH key registered with Railway (`railway ssh keys add`) before `railway volume files` works. Attach the `--volume` flag to `railway volume files`, not to the `upload` subcommand. One service can have only one volume. Do not add a second volume to get a clean upload. Uploading over the live database needs an explicit overwrite and a restart afterward.
 
-Full first-time setup, including CLI examples, is in [docs/RAILWAY.md](../docs/RAILWAY.md).
+Creating the host when none exists is [deploy on Railway from scratch](deploy_on_railway_from_scratch.md). Do not follow that guide against the live project unless you intend to replace it.
 
 ### What a bad deploy looks like
 

@@ -4,7 +4,7 @@ Web app that pulls **AI News newsletters from a dedicated inbox**, extracts **Ge
 
 The shared production app is [https://ainewsscout-production.up.railway.app](https://ainewsscout-production.up.railway.app). You can also run the same code locally. Emails, marks, and research context live in one SQLite file. That file is not in Git.
 
-New to the codebase? Read [onboarding_docs/feature_development_guide_for_onboarding_developers.md](onboarding_docs/feature_development_guide_for_onboarding_developers.md) before changing features. Deploy details are in [docs/RAILWAY.md](docs/RAILWAY.md).
+New to the codebase? Start at [onboarding_docs/README.md](onboarding_docs/README.md). The short rules are in [start here before changing the app](onboarding_docs/start_here_before_changing_the_app.md). A from-scratch Railway deploy is [deploy on Railway from scratch](onboarding_docs/deploy_on_railway_from_scratch.md).
 
 ## What is stored where
 
@@ -57,7 +57,7 @@ cp .env.example .env
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API listens on port 8000. Vite proxies `/api` to it.
 
-How the inbox is filtered, and how the live Railway service is configured, is in [onboarding_docs/inbox_auth_and_railway.md](onboarding_docs/inbox_auth_and_railway.md).
+How the inbox is filtered, and how the live Railway service is configured, is in [onboarding_docs/inbox_and_login_tokens.md](onboarding_docs/inbox_and_login_tokens.md).
 
 ### Inbox env vars
 
@@ -123,11 +123,10 @@ backend/tools/     IMAP pull smoke test
 frontend/          Vite + React UI
 skills/            Extractor and AI-search prompts
 tests/             Backend tests (temporary database)
-onboarding_docs/   Guide for someone changing the app
-docs/RAILWAY.md    Host setup
+onboarding_docs/   Guides for a new developer, including Railway from scratch
 data/              Local SQLite file, created at runtime, gitignored
 ```
 
 ## Hosting
 
-Production deploys from `main`. The database stays on the Railway volume across deploys. See [docs/RAILWAY.md](docs/RAILWAY.md).
+Production deploys from `main`. The database stays on the Railway volume across deploys. To create that host from nothing, follow [onboarding_docs/deploy_on_railway_from_scratch.md](onboarding_docs/deploy_on_railway_from_scratch.md).

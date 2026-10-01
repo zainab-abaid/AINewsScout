@@ -1,18 +1,20 @@
-# Feature development guide
+# Start here before changing the app
 
 Start here if you are changing AINews Scout and have no prior context. The app is a private FastAPI + React tool. It pulls AI News newsletters from a dedicated Gmail inbox, asks an LLM to extract Genie probe candidates, and lets people review, mark, search, and edit the research context those extractions use.
 
-Production is already live. Pushing `main` deploys it. The database is a single SQLite file on a Railway volume, not in Git. Read [inbox, tokens, and Railway](inbox_auth_and_railway.md) before you touch deploy, secrets, or mail.
+Production is already live. Pushing `main` deploys it. The database is a single SQLite file on a Railway volume, not in Git. Read [inbox and login tokens](inbox_and_login_tokens.md) before you touch secrets or mail. Read [deploy on Railway from scratch](deploy_on_railway_from_scratch.md) only if you are creating a new host.
+
+The folder index is [README.md](README.md).
 
 ## Read next
 
 | Doc | What it answers |
 | --- | --- |
-| [Architecture](architecture.md) | Request path, roles, jobs, database, prompts |
-| [Repository and scripts](repository_and_scripts.md) | Where files live and which commands to run |
-| [Features](features.md) | Each product feature and the files that implement it |
-| [Inbox, tokens, and Railway](inbox_auth_and_railway.md) | The connected inbox, role tokens, and the live deploy |
-| [docs/RAILWAY.md](../docs/RAILWAY.md) | Step-by-step Railway setup if you are recreating the host |
+| [How the running app is structured](how_the_running_app_is_structured.md) | Request path, roles, jobs, database, prompts |
+| [Folder layout and commands](folder_layout_and_commands.md) | Where files live and which commands to run |
+| [Where each feature is implemented](where_each_feature_is_implemented.md) | Each product feature and the files that implement it |
+| [Inbox and login tokens](inbox_and_login_tokens.md) | The connected inbox, role tokens, and the live server |
+| [Deploy on Railway from scratch](deploy_on_railway_from_scratch.md) | Create the host when nothing is deployed yet |
 | [README](../README.md) | Clone, `.env`, and `./run_dev.sh` |
 
 ## Rules that are easy to break
@@ -26,7 +28,7 @@ Production is already live. Pushing `main` deploys it. The database is a single 
 
 ## How to add a feature
 
-1. Find the feature in [features.md](features.md) and start from those files.
+1. Find the feature in [where each feature is implemented](where_each_feature_is_implemented.md) and start from those files.
 2. If the change is user-visible, update the React screen and the matching function in `api.ts`.
 3. If the change is stored, update `backend/db.py`, `backend/schemas.py`, and the router. If the table already exists in production, also update `_add_missing_columns`.
 4. If the change affects what the extractor or AI search believes, edit `skills/02_…` or `skills/03_…`, or the research-context composer in `backend/services/research_context.py`. Those files are the prompt. They are not documentation.

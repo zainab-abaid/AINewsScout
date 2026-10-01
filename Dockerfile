@@ -29,7 +29,8 @@ COPY backend ./backend
 COPY skills ./skills
 COPY --from=frontend /frontend/dist ./frontend/dist
 
-# SQLite lives on a Railway volume mounted at /app/data (see docs/RAILWAY.md).
+# SQLite lives on a Railway volume mounted at /app/data.
+# See onboarding_docs/deploy_on_railway_from_scratch.md.
 RUN mkdir -p /app/data
 
 EXPOSE 8000
