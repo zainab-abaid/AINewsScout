@@ -152,7 +152,9 @@ def seed_research_context_if_empty() -> None:
 def load_research_context() -> dict[str, Any]:
     with session_scope() as session:
         probes = session.exec(
-            select(ResearchProbe).order_by(ResearchProbe.sort_order, ResearchProbe.id)
+            select(ResearchProbe).order_by(
+                ResearchProbe.probe_date.desc(), ResearchProbe.id.desc()
+            )
         ).all()
         artifacts = session.exec(
             select(ResearchArtifact).order_by(

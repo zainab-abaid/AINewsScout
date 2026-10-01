@@ -138,6 +138,13 @@ def test_manual_probe_and_not_useful(client: TestClient):
     )
     assert bad.status_code == 400
 
+    newer = bare.post(
+        "/api/admin/probes",
+        headers=admin,
+        json={"title": "Newer probe", "description": "Added after the dated one."},
+    )
+    assert newer.status_code == 200, newer.text
+
     nu = bare.post(
         "/api/admin/not-useful",
         headers=admin,
@@ -151,3 +158,15 @@ def test_manual_probe_and_not_useful(client: TestClient):
     assert "Test probe" in ctx["prompt_preview"]
     assert "Date: 2024-03-12" in ctx["prompt_preview"]
     assert "pure market gossip" in ctx["prompt_preview"]
+
+    titles = [p["title"] for p in ctx["probes"]]
+    assert titles.index("Newer probe") < titles.index("Test probe")
+    seen_blank = False
+    dated: list[str] = []
+    for p in ctx["probes"]:
+        if p.get("probe_date"):
+            assert not seen_blank
+            dated.append(p["probe_date"])
+        else:
+            seen_blank = True
+    assert dated == sorted(dated, reverse=True)

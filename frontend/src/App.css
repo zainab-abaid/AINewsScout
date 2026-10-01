@@ -866,6 +866,18 @@ button.linkish {
   padding: .05rem .4rem;
 }
 .admin-add-form, .admin-ingest { display: grid; gap: .45rem; }
+.probe-add-lead { margin: 0; font-size: .9rem; }
+.probe-or {
+  margin: .55rem 0 0;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.probe-add-hint { margin: 0; font-size: .85rem; color: var(--danger, #8a3b2a); }
+.probe-add-progress p { margin: 0 0 .35rem; font-size: .85rem; color: var(--muted); }
+.admin-ingest .btn-primary { justify-self: start; }
 .admin-ingest-row { display: flex; flex-wrap: wrap; gap: .5rem; }
 .admin-ingest-row input { flex: 1 1 220px; margin: 0; }
 .admin-file {

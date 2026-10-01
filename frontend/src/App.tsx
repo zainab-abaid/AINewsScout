@@ -2763,6 +2763,9 @@ function AdminView({
   const [priDesc, setPriDesc] = useState("");
   const [probeUrl, setProbeUrl] = useState("");
   const [probeText, setProbeText] = useState("");
+  const [probeFile, setProbeFile] = useState<File | null>(null);
+  const [probeFileKey, setProbeFileKey] = useState(0);
+  const [addingProbe, setAddingProbe] = useState(false);
   const [artTitle, setArtTitle] = useState("");
   const [artDesc, setArtDesc] = useState("");
   const [artUrl, setArtUrl] = useState("");
@@ -2836,7 +2839,13 @@ function AdminView({
     "Paste a blog or docs URL and the LLM drafts a title plus a 2–3 sentence description from the page text. Images and video are not supported. You can also type the title and description yourself.";
 
   const probeAddTip =
-    "Paste a URL (a docs page or a blog — only the text is pulled from the page), paste a text description, or upload a PDF. An LLM reads that input and writes the probe topic and a short description saved here. The date is set to today; you can edit it on the probe afterwards.";
+    "Use only one input. Paste a text description, or paste a URL (a docs page or a blog — only the text is pulled from the page), or upload a PDF. Submit sends that input to an LLM, which writes the probe topic and a short description. The date is set to today; you can edit it on the probe afterwards.";
+
+  const probeTextOn = probeText.trim().length > 0;
+  const probeUrlOn = probeUrl.trim().length > 0;
+  const probeChoices = Number(probeTextOn) + Number(probeUrlOn) + Number(probeFile != null);
+  const probeTextReady = !probeTextOn || probeText.trim().length >= 40;
+  const canSubmitProbe = !addingProbe && !busy && probeChoices === 1 && probeTextReady;
 
   return (
     <div className="admin-view">
@@ -2983,9 +2992,6 @@ function AdminView({
               <details>
                 <summary>
                   <span className="probe-summary-title">{p.title}</span>
-                  {p.source_kind !== "manual" ? (
-                    <span className="admin-source-tag">{p.source_kind}</span>
-                  ) : null}
                   <input
                     className="probe-date-input"
                     type="date"
@@ -3035,69 +3041,82 @@ function AdminView({
             </li>
           ))}
         </ul>
-        <div className="admin-ingest">
+        <form
+          className="admin-ingest"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!canSubmitProbe) return;
+            setAddingProbe(true);
+            void run(async () => {
+              const today = todayISO();
+              if (probeText.trim()) {
+                await api.ingestProbeText(probeText.trim(), today);
+              } else if (probeUrl.trim()) {
+                await api.ingestProbeUrl(probeUrl.trim(), today);
+              } else if (probeFile) {
+                await api.ingestProbePdf(probeFile, today);
+              }
+              setProbeText("");
+              setProbeUrl("");
+              setProbeFile(null);
+              setProbeFileKey((k) => k + 1);
+            }, "Probe added. Review it in the list above.").finally(() => setAddingProbe(false));
+          }}
+        >
           <p className="field-label">
             Add probe <InfoTip text={probeAddTip} />
           </p>
+          <p className="probe-add-lead">
+            Paste text, or add a URL, or upload a PDF file. Use only one.
+          </p>
+          <p className="probe-or">Paste text</p>
           <textarea
             rows={4}
             value={probeText}
             onChange={(e) => setProbeText(e.target.value)}
             placeholder="Paste a text description of the probe"
             aria-label="Probe description text"
+            disabled={addingProbe}
           />
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={busy || probeText.trim().length < 40}
-            onClick={() =>
-              run(async () => {
-                await api.ingestProbeText(probeText.trim(), todayISO());
-                setProbeText("");
-              }, "Probe drafted from the pasted text and saved. Review it in the list.")
-            }
-          >
-            Analyse text
-          </button>
-          <div className="admin-ingest-row">
-            <input
-              value={probeUrl}
-              onChange={(e) => setProbeUrl(e.target.value)}
-              placeholder="https://… blog or docs page"
-              aria-label="Probe source URL"
-            />
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={busy || !probeUrl.trim()}
-              onClick={() =>
-                run(async () => {
-                  await api.ingestProbeUrl(probeUrl.trim(), todayISO());
-                  setProbeUrl("");
-                }, "Probe drafted from URL and saved. Review the text in the list.")
-              }
-            >
-              Analyse URL
-            </button>
-          </div>
+          <p className="probe-or">Or paste a URL</p>
+          <input
+            value={probeUrl}
+            onChange={(e) => setProbeUrl(e.target.value)}
+            placeholder="https://… blog or docs page"
+            aria-label="Probe source URL"
+            disabled={addingProbe}
+          />
+          <p className="probe-or">Or upload a PDF file</p>
           <label className="admin-file">
-            Upload PDF
+            {probeFile ? probeFile.name : "Choose a PDF"}
             <input
+              key={probeFileKey}
               type="file"
               accept="application/pdf,.pdf"
-              disabled={busy}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                run(
-                  () => api.ingestProbePdf(file, todayISO()),
-                  "Probe drafted from PDF and saved. Review the text in the list.",
-                );
-              }}
+              disabled={addingProbe}
+              onChange={(e) => setProbeFile(e.target.files?.[0] ?? null)}
             />
           </label>
-        </div>
+          {probeChoices > 1 && (
+            <p className="probe-add-hint">Use only one: pasted text, a URL, or a PDF.</p>
+          )}
+          {probeChoices === 1 && probeText.trim().length > 0 && probeText.trim().length < 40 && (
+            <p className="probe-add-hint">
+              Paste a few more sentences so a description can be written.
+            </p>
+          )}
+          <button type="submit" className="btn-primary" disabled={!canSubmitProbe}>
+            {addingProbe ? "Submitting…" : "Submit"}
+          </button>
+          {addingProbe && (
+            <div className="probe-add-progress" role="status" aria-live="polite">
+              <p>Writing the probe description…</p>
+              <div className="progress-track" aria-hidden="true">
+                <div className="progress-fill indeterminate" />
+              </div>
+            </div>
+          )}
+        </form>
       </AdminPanel>
 
       <AdminPanel
