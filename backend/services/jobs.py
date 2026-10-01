@@ -412,11 +412,10 @@ def search_emails_in_range(
 def preview_search(
     date_from: Optional[date], date_to: Optional[date]
 ) -> dict[str, Any]:
-    """Search runs over emails already in the local DB (including historic ones).
+    """Count emails already stored in the local database for this range.
 
-    If the inbox is configured, the search job also does a quick IMAP pull first
-    so brand-new forwards are included — but the preview only reports what is
-    already stored, since IMAP listing is not free.
+    AI search does not pull from the inbox. New mail arrives only through the
+    daily sync or Sync inbox now.
     """
     emails = search_emails_in_range(date_from, date_to)
     stored = len(emails)
@@ -476,56 +475,6 @@ def run_idea_search_job(job_id: int) -> None:
             ).all():
                 session.delete(old)
 
-        fetch_meta: dict[str, Any] = {}
-        if imap_configured():
-            if not _search_exists(search_id):
-                _update_job(
-                    job_id,
-                    status="done",
-                    finished_at=_now(),
-                    progress={"phase": "cancelled"},
-                )
-                return
-            _progress(
-                job_id,
-                {
-                    "phase": "listing",
-                    "stage": "download",
-                    "listed": 0,
-                    "new_emails": 0,
-                    "skipped": 0,
-                },
-            )
-
-            def prog(data: dict[str, Any]) -> None:
-                _progress(job_id, data)
-
-            try:
-                fetch_counts, _new_ids = fetch_and_store(progress=prog)
-            except Exception as exc:
-                raise RuntimeError(readable_model_error(exc)) from exc
-            _progress(
-                job_id,
-                {
-                    **fetch_counts,
-                    "phase": "fetched",
-                    "stage": "download",
-                },
-            )
-            if not _search_exists(search_id):
-                _update_job(
-                    job_id,
-                    status="done",
-                    finished_at=_now(),
-                    progress={**fetch_counts, "phase": "cancelled"},
-                )
-                return
-            fetch_meta = {
-                "listed": fetch_counts.get("listed", 0),
-                "new_emails": fetch_counts.get("new_emails", 0),
-                "skipped": fetch_counts.get("skipped", 0),
-            }
-
         emails = search_emails_in_range(date_from, date_to)
         if not emails:
             raise RuntimeError("No emails in that date range in the local database.")
@@ -539,7 +488,6 @@ def run_idea_search_job(job_id: int) -> None:
             "chunks_done": 0,
             "chunks_failed": 0,
             "hits": 0,
-            **fetch_meta,
         }
         _progress(job_id, {**counts, "phase": "searching", "stage": "search"})
 

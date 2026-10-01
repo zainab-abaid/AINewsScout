@@ -2044,8 +2044,8 @@ function SearchView({
         <p className="search-intro">
           Ask a question and GPT reads whole newsletters in batches, quoting the passages that
           bear on it. This is AI search over full email text — not the keyword filter on the
-          first tab. It defaults to the last two weeks. New forwards in the dedicated inbox are
-          pulled in first when needed.
+          first tab. It defaults to the last two weeks of newsletters already in the
+          database, and it does not pull mail from the inbox.
         </p>
         <form
           onSubmit={(e) => {
@@ -2070,7 +2070,12 @@ function SearchView({
               <input
                 type="date"
                 value={from}
-                max={todayISO()}
+                min={newsletterBounds?.oldest}
+                max={
+                  newsletterBounds && newsletterBounds.newest < todayISO()
+                    ? newsletterBounds.newest
+                    : todayISO()
+                }
                 disabled={starting || running}
                 onChange={(e) => setFrom(e.target.value)}
               />
@@ -2080,7 +2085,12 @@ function SearchView({
               <input
                 type="date"
                 value={to}
-                max={todayISO()}
+                min={newsletterBounds?.oldest}
+                max={
+                  newsletterBounds && newsletterBounds.newest < todayISO()
+                    ? newsletterBounds.newest
+                    : todayISO()
+                }
                 disabled={starting || running}
                 onChange={(e) => setTo(e.target.value)}
               />

@@ -396,44 +396,17 @@ class TestSearchPullsFromInbox:
         assert resp.status_code == 400
         assert "available newsletters" in resp.json()["detail"].lower()
 
-    def test_fetches_from_inbox_then_searches(self, corpus, monkeypatch):
-        seen: list[int] = []
-
-        def fake_fetch(progress=None, dry_run=False):
-            if progress:
-                progress({"phase": "fetching", "listed": 1, "new_emails": 1, "skipped": 0})
-            with Session(database.get_engine()) as session:
-                session.add(
-                    Email(
-                        gmail_id="imap:new",
-                        subject="[AINews] newly pulled",
-                        from_addr="you@example.com",
-                        date_raw="Mon, 20 Jul 2026 09:00:00 +0000",
-                        sent_at=datetime(2026, 7, 20),
-                        body_md="Harness choice moved scores in July.",
-                        extraction_status="pending",
-                    )
-                )
-                session.commit()
-            return {"listed": 1, "new_emails": 1, "skipped": 0}, [99]
+    def test_does_not_pull_from_the_inbox(self, corpus, monkeypatch):
+        def boom(*_a, **_k):
+            raise AssertionError("AI search must not download from the inbox")
 
         monkeypatch.setattr(jobs, "imap_configured", lambda: True)
-        monkeypatch.setattr(jobs, "fetch_and_store", fake_fetch)
-        monkeypatch.setattr(
-            jobs, "search_chunk", lambda q, chunk: seen.extend(e.id for e in chunk) or []
-        )
-
-        search_id = start_search(date_from="2026-07-20", date_to="2026-08-19")
+        monkeypatch.setattr(jobs, "fetch_and_store", boom)
+        monkeypatch.setattr(jobs, "search_chunk", lambda q, chunk: [])
+        search_id = start_search(date_from="2026-08-15", date_to="2026-08-19")
         job = run_search(search_id)
-
         assert job.status == "done"
-        assert json.loads(job.progress_json)["new_emails"] == 1
-        search = read_search(search_id)
-        assert search.emails_total == 6
-        with Session(database.get_engine()) as session:
-            extra = session.exec(select(Email).where(Email.gmail_id == "imap:new")).first()
-            assert extra is not None
-            assert extra.id in seen
+        assert read_search(search_id).emails_total == 5
 
     def test_does_not_call_inbox_when_unconfigured(self, corpus, monkeypatch):
         calls: list[str] = []
@@ -446,19 +419,6 @@ class TestSearchPullsFromInbox:
         monkeypatch.setattr(jobs, "search_chunk", lambda q, chunk: [])
         run_search(start_search())
         assert calls == []
-
-    def test_skips_messages_already_stored(self, corpus, monkeypatch):
-        def fake_fetch(progress=None, dry_run=False):
-            if progress:
-                progress({"phase": "fetched", "listed": 5, "new_emails": 0, "skipped": 5})
-            return {"listed": 5, "new_emails": 0, "skipped": 5}, []
-
-        monkeypatch.setattr(jobs, "imap_configured", lambda: True)
-        monkeypatch.setattr(jobs, "fetch_and_store", fake_fetch)
-        monkeypatch.setattr(jobs, "search_chunk", lambda q, chunk: [])
-        search_id = start_search()
-        run_search(search_id)
-        assert read_search(search_id).emails_total == 5
 
 
 class TestSearchApi:
